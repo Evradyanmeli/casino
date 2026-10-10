@@ -1,0 +1,13 @@
+node_modules
+dist
+coverage
+.env*
+.git
+*.tsbuildinfo
+*.db
+*.db-*
+*.sqlite*
+*.pem
+*.key
+*.dump
+*.backup.sql

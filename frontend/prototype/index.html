@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CasinoX — Casino Social</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Orbitron:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header" id="main-header" style="display:none">
+    <div class="header-logo" data-nav="#lobby">CASINO<span>X</span></div>
+    <div style="display:flex;align-items:center;gap:16px">
+      <div class="header-balance" id="header-balance">
+        <span>💰</span>
+        <span class="amount">5 000</span>
+        <span class="caption" style="color:var(--text-muted)">GC</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" data-nav="#shop" title="Boutique">🛒</button>
+      <button class="btn btn-ghost btn-sm lang-btn" id="lang-toggle" onclick="toggleLang()">EN</button>
+      <button class="btn btn-ghost btn-sm" onclick="toggleChat()" title="Chat" id="chat-toggle-header">💬</button>
+      <div class="notif-bell" id="notif-bell">
+        🔔
+        <span class="count" id="notif-count">3</span>
+      </div>
+      <div class="header-user" id="header-user" data-nav="#profile">
+        <div class="avatar">L</div>
+        <span class="small">LuckyPlayer</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Notification Panel -->
+  <div class="notif-panel" id="notif-panel">
+    <div class="header">Notifications</div>
+    <div id="notif-list"></div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Chat Panel -->
+  <div class="chat-panel" id="chat-panel">
+    <div class="chat-header">
+      <span>Chat</span>
+      <button class="btn btn-ghost btn-sm" onclick="toggleChat()">✕</button>
+    </div>
+    <div class="chat-messages" id="chat-messages"></div>
+    <div class="chat-input-area">
+      <input class="input chat-input" id="chat-input" placeholder="Écrire un message..." onkeypress="if(event.key==='Enter') sendChatMsg()">
+      <button class="btn btn-primary btn-sm" onclick="sendChatMsg()">Envoyer</button>
+    </div>
+  </div>
+
+  <!-- Pages -->
+  <div class="page" id="page-login"></div>
+  <div class="page" id="page-register"></div>
+  <div class="page" id="page-lobby"></div>
+  <div class="page" id="page-slots3"></div>
+  <div class="page" id="page-slots4"></div>
+  <div class="page" id="page-slots5"></div>
+  <div class="page" id="page-blackjack"></div>
+  <div class="page" id="page-roulette"></div>
+  <div class="page" id="page-poker-lobby"></div>
+  <div class="page" id="page-poker-table"></div>
+  <div class="page" id="page-crash"></div>
+  <div class="page" id="page-plinko"></div>
+  <div class="page" id="page-mines"></div>
+  <div class="page" id="page-wheel"></div>
+  <div class="page" id="page-limbo"></div>
+  <div class="page" id="page-craps"></div>
+  <div class="page" id="page-bingo"></div>
+  <div class="page" id="page-tasks"></div>
+  <div class="page" id="page-race"></div>
+  <div class="page" id="page-profile"></div>
+  <div class="page" id="page-admin"></div>
+  <div class="page" id="page-admin-economy"></div>
+  <div class="page" id="page-admin-users"></div>
+  <div class="page" id="page-admin-logs"></div>
+  <div class="page" id="page-reset-password"></div>
+  <div class="page" id="page-shop"></div>
+  <div class="page" id="page-responsible-gaming"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,275 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
+model User {
+  id            String     @id @default(uuid())
+  email         String     @unique
+  pseudo        String     @unique
+  passwordHash  String?
+  googleId      String?    @unique
+  birthDate     DateTime?
+  role          UserRole   @default(USER)
+  status        UserStatus @default(ACTIVE)
+  balance       BigInt     @default(5000)
+  xp            Int        @default(0)
+  level         Int        @default(1)
+  avatar        String?
+  customAvatar  String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  accounts          Account[]
+  transactions      Transaction[]
+  gameSessions      GameSession[]
+  dailyRewards      DailyReward[]
+  notifications     Notification[]
+  responsibleLimits ResponsibleLimit?
+  badges            UserBadge[]
+  tasks             UserTask[]
+  raceEntries       RaceEntry[]
+  chatMessages      ChatMessage[]
+  auditLogs         AuditLog[]
+
+  @@index([email])
+  @@index([pseudo])
+  @@index([googleId])
+}
+
+model Account {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  type              String   @default("email")
+  provider          String?
+  providerAccountId String?
+  refreshToken      String?
+  accessToken       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Transaction {
+  id          String   @id @default(uuid())
+  userId      String
+  amount      BigInt
+  type        String
+  reference   String?
+  description String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, createdAt])
+}
+
+model GameSession {
+  id          String   @id @default(uuid())
+  userId      String
+  gameType    String
+  betAmount   BigInt
+  winAmount   BigInt   @default(0)
+  resultData  Json?
+  endedAt     DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([gameType])
+}
+
+model DailyReward {
+  id        String   @id @default(uuid())
+  userId    String
+  streak    Int      @default(0)
+  lastClaim DateTime?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  content   String
+  read      Boolean  @default(false)
+  metadata    Json?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+}
+
+model Badge {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  name        String
+  description String
+  icon        String
+  category    String
+  condition   Json
+  xpReward    Int
+  createdAt   DateTime @default(now())
+
+  userBadges UserBadge[]
+}
+
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+model UserBadge {
+  id        String   @id @default(uuid())
+  userId    String
+  badgeId   String
+  earnedAt  DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  badge     Badge    @relation(fields: [badgeId], references: [id])
+
+  @@unique([userId, badgeId])
+}
+
+model Task {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  title       String
+  description String
+  type        String
+  condition   Json
+  reward      Json
+  expiresIn   Int?
+  createdAt   DateTime @default(now())
+
+  userTasks UserTask[]
+}
+
+model UserTask {
+  id          String    @id @default(uuid())
+  userId      String
+  taskId      String
+  progress    Int       @default(0)
+  completed   Boolean   @default(false)
+  claimed     Boolean   @default(false)
+  expiresAt   DateTime?
+  completedAt DateTime?
+  user        User      @relation(fields: [userId], references: [id])
+  task        Task      @relation(fields: [taskId], references: [id])
+
+  @@unique([userId, taskId])
+}
+
+model Race {
+  id        String   @id @default(uuid())
+  name      String
+  startAt   DateTime
+  endAt     DateTime
+  prize     Json
+  status    String   @default("upcoming")
+  createdAt DateTime @default(now())
+
+  entries RaceEntry[]
+}
+
+model RaceEntry {
+  id      String  @id @default(uuid())
+  raceId  String
+  userId  String
+  xp      Int     @default(0)
+  rank    Int?
+  prize   Int     @default(0)
+  claimed Boolean @default(false)
+  race    Race    @relation(fields: [raceId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([raceId, userId])
+}
+
+model GameConfig {
+  id        String   @id @default(uuid())
+  gameType  String   @unique
+  houseEdge Float    @default(5.0)
+  minBet    BigInt   @default(10)
+  maxBet    BigInt   @default(100000)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  userId    String
+  content   String
+  room      String   @default("global")
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([room, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  adminId   String
+  action    String
+  entity    String
+  entityId  String?
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now())
+
+  admin User @relation(fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model ResponsibleLimit {
+  id                    String    @id @default(uuid())
+  userId                String    @unique
+  dailyLimit            BigInt?
+  weeklyLimit           BigInt?
+  monthlyLimit          BigInt?
+  lossDailyLimit        BigInt?
+  lossWeeklyLimit       BigInt?
+  lossMonthlyLimit      BigInt?
+  sessionLimitMinutes   Int?
+  selfExcludeUntil      DateTime?
+  realityCheckInterval  Int?
+  depositLimitEnabled   Boolean   @default(false)
+  lossLimitEnabled      Boolean   @default(false)
+  sessionLimitEnabled   Boolean   @default(false)
+  selfExclusionEnabled  Boolean   @default(false)
+  realityCheckEnabled   Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
