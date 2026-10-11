@@ -166,7 +166,7 @@ export class BingoService {
       room.players.splice(idx, 1);
     }
 
-    this.userRoomMap.delete(userId);
+    if (this.userRoomMap.get(userId) === roomId) this.userRoomMap.delete(userId);
 
     if (room.players.length === 0) {
       this.stopInterval(roomId);
@@ -300,8 +300,13 @@ export class BingoService {
 
     const economy = await this.getEconomy();
     await economy.runInTransaction(async (tx: import('@prisma/client').Prisma.TransactionClient) => {
+      const house = await tx.user.findFirst({ where: { email: 'admin@casino.com', role: 'ADMIN', status: 'ACTIVE' }, select: { id: true } });
+      if (!house) throw new Error('Caisse indisponible pour regler le Bingo');
+      await tx.user.updateMany({ where: { id: house.id }, data: { balance: { increment: 0n } } });
       for (const participant of room.players) if (participant.escrowId) await saveEscrow(tx, participant.escrowId, 0, true);
       if (prize > 0) await new EconomyService(tx).addBalance(userId, BigInt(prize), 'win', roomId, 'Bingo gagné');
+      const commission = totalBets - BigInt(prize);
+      if (commission > 0n) await new EconomyService(tx).addBalance(house.id, commission, 'bingo_commission', roomId, 'Commission Bingo prelevee sur la cagnotte');
       for (const participant of room.players) await tx.gameSession.create({
       data: {
         userId: participant.userId,

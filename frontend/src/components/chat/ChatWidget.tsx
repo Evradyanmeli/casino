@@ -3,7 +3,7 @@ import { useChatStore } from '@/store/chatStore';
 import { connectChat, disconnectChat, sendMessage, onNewMessage, onChatError } from '@/services/chatSocket';
 import { useState } from 'react';
 
-export default function ChatWidget() {
+export default function ChatWidget({ inline = false }: { inline?: boolean }) {
   const { messages, isOpen, error, toggle, addMessage, setError } = useChatStore();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -57,19 +57,19 @@ export default function ChatWidget() {
   };
 
   return (
-    <div className="fixed bottom-4 right-4 z-50">
+    <div className={inline ? 'relative mt-8 flex flex-col items-end' : 'fixed bottom-4 right-4 z-50'}>
       {isOpen && (
-        <div className="mb-2 w-80 bg-[#1A1A2E] border border-gray-700 rounded-xl shadow-2xl overflow-hidden animate-slide-in-right">
+        <div id="casino-chat-panel" className="mb-2 w-[min(320px,calc(100vw-32px))] bg-[#1A1A2E] border border-gray-700 rounded-xl shadow-2xl overflow-hidden animate-slide-in-right">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 bg-[#0D0D1A]">
             <h3 className="text-sm font-display text-gold">Chat</h3>
-            <button onClick={toggle} className="text-gray-400 hover:text-white transition-colors">
+            <button onClick={toggle} aria-label="Reduire le chat" className="flex h-8 w-8 items-center justify-center text-gray-400 hover:text-white transition-colors">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
           </div>
 
-          <div ref={listRef} className="h-64 overflow-y-auto p-3 space-y-2">
+          <div ref={listRef} className="h-[min(256px,calc(100dvh-240px))] overflow-y-auto p-3 space-y-2">
             {messages.length === 0 && (
               <p className="text-gray-500 text-xs text-center py-8">Aucun message</p>
             )}
@@ -95,7 +95,7 @@ export default function ChatWidget() {
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSend()}
               placeholder="Votre message..."
-              className="flex-1 bg-[#0D0D1A] border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-gold transition-colors"
+              className="min-w-0 flex-1 bg-[#0D0D1A] border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-gold transition-colors"
               maxLength={200}
             />
             <button
@@ -115,6 +115,8 @@ export default function ChatWidget() {
       <button
         onClick={toggle}
         aria-label={isOpen ? 'Fermer le chat' : 'Ouvrir le chat'}
+        aria-expanded={isOpen}
+        aria-controls="casino-chat-panel"
         className="w-12 h-12 rounded-full bg-gold text-[#0D0D1A] shadow-lg hover:brightness-110 transition-all flex items-center justify-center"
       >
         {isOpen ? (

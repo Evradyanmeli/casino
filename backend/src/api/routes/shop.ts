@@ -20,7 +20,7 @@ export default async function shopRoutes(app: FastifyInstance) {
   app.post('/shop/purchase/:packageId', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { packageId } = request.params as { packageId: string };
-      const result = await shopService.purchasePackage(request.user.sub, packageId);
+      const result = await shopService.purchasePackage(request.user.sub, packageId, request.headers['idempotency-key'] as string | undefined);
       return result;
     } catch (err) {
       if (err instanceof AppError) return reply.status(err.statusCode).send({ error: err.message });

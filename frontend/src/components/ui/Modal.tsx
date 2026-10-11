@@ -77,10 +77,10 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
     <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
-        className="relative bg-[#1A1A2E] rounded-xl border border-gray-800 w-full max-w-md p-6 shadow-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto">
+        className="casino-modal relative bg-[#1A1A2E] rounded-xl border border-gray-800 w-full max-w-md p-5 sm:p-6 shadow-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <div className="flex items-center justify-between gap-3 mb-4">
           <h3 id={titleId} className="text-xl font-display text-gold break-words min-w-0">{title}</h3>
-          <button type="button" onClick={onClose} aria-label={t('common.close')} className="shrink-0 text-gray-500 hover:text-white transition-colors">
+          <button type="button" onClick={onClose} aria-label={t('common.close')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-white/10 text-gray-400 hover:text-white transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>

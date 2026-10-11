@@ -23,7 +23,7 @@ export default async function economyRoutes(app: FastifyInstance) {
   app.post('/daily-reward', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const service = new DailyRewardService(app.prisma);
-      const result = await service.claimDailyReward(request.user.sub);
+      const result = await service.claimDailyReward(request.user.sub, request.headers['idempotency-key'] as string | undefined);
       return result;
     } catch (err) {
       if (err instanceof AppError) {

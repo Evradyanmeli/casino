@@ -1,8 +1,8 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
-import { EconomyService } from '../../economy/EconomyService.js';
 import { AppError } from '../../auth/AuthService.js';
 import { GameLock, openWager, increaseWager, settleWager } from '../GameSupport.js';
+import { runFinancialOperation } from '../../economy/FinancialOperation.js';
 
 interface CrapsState {
   sessionId: string; phase: 'comeout' | 'point' | 'resolved'; point: number | null;
@@ -25,8 +25,10 @@ export class CrapsService {
     if (s.state.state !== 'playing') setTimeout(() => this.sessions.delete(s.state.sessionId), 600000).unref();
     return structuredClone(s.state);
   }
-  async startRound(userId: string, passBet: number): Promise<CrapsState> {
+  async startRound(userId: string, passBet: number, key?: string): Promise<CrapsState> {
     return this.lock.run(userId, async () => {
+      let staged: Session | undefined;
+      const result = await runFinancialOperation(this.prisma, userId, 'craps_start', key, { passBet }, async tx => {
       if ([...this.sessions.values()].some(s => s.userId === userId && s.state.state === 'playing')) throw new AppError('A Craps session is already active', 409);
       const dice = rollDice();
       const total = dice[0] + dice[1];
@@ -36,24 +38,27 @@ export class CrapsService {
         sessionId: randomUUID(), dice, diceTotal: total, phase: won || lost ? 'resolved' : 'point',
         point: won || lost ? null : total, passBet, oddsBet: 0, payout: won ? passBet * 2 : 0, state: won ? 'won' : lost ? 'lost' : 'playing',
       } };
-      await new EconomyService(this.prisma).runInTransaction(async tx => {
-        s.wagerId = await openWager(tx, userId, 'craps', passBet);
-        if (won || lost) await settleWager(tx, s.wagerId, userId, 'craps', s.state.payout, s.state as unknown as Prisma.InputJsonValue);
+      s.wagerId = await openWager(tx, userId, 'craps', passBet, passBet * 3);
+      if (won || lost) await settleWager(tx, s.wagerId, userId, 'craps', s.state.payout, s.state as unknown as Prisma.InputJsonValue);
+      staged = s;
+      return structuredClone(s.state);
       });
-      return this.publish(s);
+      if (staged) this.publish(staged);
+      return result;
     });
   }
-  private async action(userId: string, id: string, odds?: number): Promise<CrapsState> {
+  private async action(userId: string, id: string, odds?: number, key?: string): Promise<CrapsState> {
     return this.lock.run(userId, async () => {
-      const original = this.sessions.get(id);
-      if (!original || original.userId !== userId) throw new AppError('Session not found', 404);
-      if (original.state.state !== 'playing') {
-        if (odds !== undefined) throw new AppError('Round already resolved', 400);
-        return structuredClone(original.state);
-      }
-      const s = structuredClone(original);
-      const state = s.state;
-      await new EconomyService(this.prisma).runInTransaction(async tx => {
+      let staged: Session | undefined;
+      const result = await runFinancialOperation(this.prisma, userId, odds === undefined ? 'craps_roll' : 'craps_odds', key, { id, odds }, async tx => {
+        const original = this.sessions.get(id);
+        if (!original || original.userId !== userId) throw new AppError('Session not found', 404);
+        if (original.state.state !== 'playing') {
+          if (odds !== undefined) throw new AppError('Round already resolved', 400);
+          return structuredClone(original.state);
+        }
+        const s = staged = structuredClone(original);
+        const state = s.state;
         if (odds !== undefined) {
           if (state.oddsBet + odds > state.passBet * 3) throw new AppError('Odds maximum is 3x the pass bet', 400);
           await increaseWager(tx, s.wagerId, userId, 'craps', odds);
@@ -68,14 +73,16 @@ export class CrapsService {
             await settleWager(tx, s.wagerId, userId, 'craps', state.payout, state as unknown as Prisma.InputJsonValue);
           }
         }
+        return structuredClone(s.state);
       });
-      return this.publish(s);
+      if (staged) this.publish(staged);
+      return result;
     });
   }
   getState(userId: string): CrapsState | null {
     const s = [...this.sessions.values()].find(s => s.userId === userId && s.state.state === 'playing');
     return s ? structuredClone(s.state) : null;
   }
-  addOdds(userId: string, id: string, odds: number) { return this.action(userId, id, odds); }
+  addOdds(userId: string, id: string, odds: number, key?: string) { return this.action(userId, id, odds, key); }
   roll(userId: string, id: string) { return this.action(userId, id); }
 }

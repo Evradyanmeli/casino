@@ -7,7 +7,7 @@ import { PrismaClient } from '@prisma/client';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 if (!process.env.DATABASE_URL) loadEnvFile(resolve(root, '.env'));
 const db = new PrismaClient();
-const models = ['user', 'account', 'transaction', 'gameSession', 'dailyReward', 'notification', 'badge',
+const models = ['user', 'account', 'transaction', 'financialOperation', 'gameSession', 'dailyReward', 'notification', 'badge',
   'systemSetting', 'userBadge', 'task', 'userTask', 'race', 'raceEntry', 'gameConfig', 'chatMessage', 'auditLog', 'responsibleLimit'];
 try {
   const data = await db.$transaction(async tx => Object.fromEntries(await Promise.all(

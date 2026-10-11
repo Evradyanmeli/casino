@@ -4,16 +4,19 @@ import { SerialQueue } from './SerialQueue.js';
 
 // In-memory transaction double, including rollback; never instantiates Prisma.
 export function walletFixture() {
-  const users = new Map(['a', 'b', 'c', 'd'].map(id => [id, { id, pseudo: id.toUpperCase(), status: 'ACTIVE', balance: 1000n }]));
+  const users = new Map<string, any>(['a', 'b', 'c', 'd'].map(id => [id, { id, pseudo: id.toUpperCase(), status: 'ACTIVE', role: 'USER', balance: 1000n }]));
+  users.set('house', { id: 'house', pseudo: 'House', email: 'admin@casino.com', role: 'ADMIN', status: 'ACTIVE', balance: 6000n });
   const journal: any[] = [];
   const sessions: any[] = [];
   const limits = new Map<string, any>();
   const tx: any = {
     user: {
+      findFirst: vi.fn(async ({ where }: any) => [...users.values()].find(user => Object.entries(where).every(([key, value]) => user[key] === value)) ?? null),
       findUnique: vi.fn(async ({ where }: any) => {
         const user = users.get(where.id);
         return user ? { ...user } : null;
       }),
+      findMany: vi.fn(async () => [...users.values()].map(user => ({ ...user }))),
       updateMany: vi.fn(async ({ where, data }: any) => {
         const user = users.get(where.id);
         if (!user || user.balance < (where.balance?.gte ?? 0n) || user.balance > (where.balance?.lte ?? BigInt(Number.MAX_SAFE_INTEGER))) return { count: 0 };

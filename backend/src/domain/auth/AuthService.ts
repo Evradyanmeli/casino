@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '../../infrastructure/database/prisma.js';
+import { ECONOMIC_DEFAULTS, isValidEconomicSetting } from '../economy/EconomicSettings.js';
 
 const SALT_ROUNDS = 12;
 
@@ -24,8 +25,8 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
     const user = await prisma.$transaction(async tx => {
       const setting = await tx.systemSetting.findUnique({ where: { key: 'welcome_bonus' } });
-      const bonus = setting?.value ?? 5000;
-      if (typeof bonus !== 'number' || !Number.isSafeInteger(bonus) || bonus < 0) throw new AppError('Bonus de bienvenue invalide', 500);
+      const bonus = setting?.value ?? ECONOMIC_DEFAULTS.welcome_bonus;
+      if (!isValidEconomicSetting('welcome_bonus', bonus)) throw new AppError('Bonus de bienvenue invalide', 500);
       const created = await tx.user.create({
       data: {
         email,
@@ -59,29 +60,9 @@ export class AuthService {
     return user;
   }
 
-  async loginWithGoogle(googleId: string, email: string, pseudo: string) {
-    let user = await prisma.user.findFirst({
-      where: { OR: [{ googleId }, { email }] },
-    });
-
-    if (user) {
-      if (!user.googleId) {
-        user = await prisma.user.update({
-          where: { id: user.id },
-          data: { googleId },
-        });
-      }
-    } else {
-      user = await prisma.user.create({
-        data: { email, pseudo, googleId },
-      });
-    }
-
-    if (user.status !== 'ACTIVE') {
-      throw new AppError('Account is suspended or banned', 403);
-    }
-
-    return user;
+  async loginWithGoogle(_googleId: string, _email: string, _pseudo: string): Promise<never> {
+    // Client-supplied identity is not proof of ownership. No verified provider is configured.
+    throw new AppError('Google authentication is not configured', 503);
   }
 }
 

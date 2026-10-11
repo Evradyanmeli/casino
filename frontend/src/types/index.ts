@@ -87,6 +87,9 @@ export interface ChatMessageFull {
 
 export interface HouseBalance {
   balance: number;
+  reservedBots?: number;
+  reservedGames?: number;
+  totalBalance?: number;
   capital: number;
 }
 

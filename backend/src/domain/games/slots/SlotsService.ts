@@ -190,7 +190,7 @@ function getReelWindow(strip: string[], startIndex: number, rows: number): strin
 }
 
 export class SlotsService {
-  constructor(private prisma: PrismaClient) {}
+  constructor(private prisma: PrismaClient | import('@prisma/client').Prisma.TransactionClient) {}
 
   async spin(userId: string, variant: string, betPerLine: number): Promise<SpinResult> {
     const config = CONFIGS[variant];
@@ -210,7 +210,7 @@ export class SlotsService {
     }
 
     return result;
-    }, result => result.totalWin);
+    }, result => result.totalWin, totalBet * Math.max(...config.symbols.map(s => s.payout)) * config.reels);
   }
 
   async freeSpin(userId: string, variant: string): Promise<SpinResult> {

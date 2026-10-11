@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Modal from '@/components/ui/Modal';
+import PageHeader from '@/components/ui/PageHeader';
 import { adminApi } from '@/services/admin';
 import type { AdminUserRow, Transaction } from '@/types';
 import { requestError } from '@/services/feedback';
@@ -52,7 +53,7 @@ export default function AdminUsersPage() {
   };
 
   const handleAdjustBalance = async () => {
-    if (!balanceModal) return;
+    if (!balanceModal || saving || !Number.isSafeInteger(adjustAmount) || !adjustAmount || !adjustReason.trim()) return;
     setSaving(true);
     setActionError('');
     try {
@@ -83,25 +84,27 @@ export default function AdminUsersPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-display text-gold">{t('admin.userManagement')}</h1>
+    <div className="min-w-0 space-y-6">
+      <PageHeader title={t('admin.userManagement')} eyebrow="Administration" />
 
+      <div className="casino-panel p-4 sm:p-5">
       <Input
         id="search"
         label={t('admin.search')}
         type="text"
         value={search}
         onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-        placeholder={t('admin.searchPlaceholder')}
+        placeholder={t('admin.searchPlaceholder', { defaultValue: 'Username or email' })}
       />
+      </div>
 
       {loading ? (
-        <p className="text-gray-400">{t('common.loading')}</p>
-      ) : error ? <p role="alert" className="text-error">{error}</p> : (
+        <p role="status" className="casino-empty text-gray-400">{t('common.loading')}</p>
+      ) : error ? <p role="alert" className="casino-panel p-5 break-words text-error">{error}</p> : (
         <>
           <p className="text-sm text-gray-400">{total} {t('admin.users')}</p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="admin-table-wrap max-w-full overflow-x-auto" role="region" aria-label={t('admin.userManagement')} tabIndex={0}>
+            <table className="admin-table w-full min-w-[960px] text-sm tabular-nums">
               <thead>
                 <tr className="text-gray-400 border-b border-gray-800">
                   <th className="text-left py-2 px-2">{t('auth.register.pseudo')}</th>
@@ -115,9 +118,9 @@ export default function AdminUsersPage() {
               </thead>
               <tbody>
                 {users.map(u => (
-                  <tr key={u.id} className="border-b border-gray-800 hover:bg-[#1A1A2E]/50">
-                    <td className="py-2 px-2 text-white font-medium">{u.pseudo}</td>
-                    <td className="py-2 px-2 text-gray-300">{u.email}</td>
+                  <tr key={u.id} className="border-b border-white/5 hover:bg-white/[0.03]">
+                    <td className="max-w-48 break-words py-3 px-3 text-white font-medium">{u.pseudo}</td>
+                    <td className="max-w-64 break-words py-3 px-3 text-gray-300">{u.email}</td>
                     <td className="py-2 px-2">
                       <span className={`text-xs font-semibold ${u.role === 'ADMIN' ? 'text-gold' : 'text-gray-400'}`}>
                         {u.role}
@@ -132,13 +135,13 @@ export default function AdminUsersPage() {
                     <td className="py-2 px-2 text-right text-white">{u.level}</td>
                     <td className="py-2 px-2 text-right">
                       <div className="flex gap-2 justify-end">
-                        <Button variant="ghost" onClick={() => openTxModal(u)} className="text-xs py-1 px-2">
+                        <Button variant="ghost" onClick={() => openTxModal(u)} className="min-h-11 whitespace-nowrap text-xs px-3">
                           {t('admin.transactions')}
                         </Button>
-                        <Button variant="ghost" onClick={() => { setActionError(''); setBanModal(u); }} className="text-xs py-1 px-2">
+                        <Button variant="ghost" onClick={() => { setActionError(''); setBanModal(u); }} className="min-h-11 whitespace-nowrap text-xs px-3">
                           {u.status === 'BANNED' ? t('admin.unban') : t('admin.ban')}
                         </Button>
-                        <Button variant="ghost" onClick={() => { setActionError(''); setBalanceModal(u); }} className="text-xs py-1 px-2">
+                        <Button variant="ghost" onClick={() => { setActionError(''); setAdjustAmount(0); setAdjustReason(''); setBalanceModal(u); }} className="min-h-11 whitespace-nowrap text-xs px-3">
                           {t('admin.balance')}
                         </Button>
                       </div>
@@ -146,12 +149,12 @@ export default function AdminUsersPage() {
                   </tr>
                 ))}
                 {users.length === 0 && (
-                  <tr><td colSpan={7} className="text-center py-8 text-gray-500">{t('admin.noUsers')}</td></tr>
+                   <tr><td colSpan={7} className="casino-empty text-center py-8 text-gray-400">{t('admin.noUsers')}</td></tr>
                 )}
               </tbody>
             </table>
           </div>
-          <div className="flex justify-between items-center">
+          <div className="flex flex-wrap justify-between items-center gap-2">
             <Button variant="ghost" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
               {t('admin.previous')}
             </Button>
@@ -165,7 +168,7 @@ export default function AdminUsersPage() {
 
       {actionError && !balanceModal && !banModal && <p role="alert" className="text-error">{actionError}</p>}
       <Modal isOpen={!!banModal} onClose={() => setBanModal(null)} title={banModal?.status === 'BANNED' ? t('admin.unban') : t('admin.ban')}>
-        <p className="text-gray-300 mb-4">{t('admin.confirmUserAction', { name: banModal?.pseudo })}</p>
+        <p className="text-gray-300 break-words mb-4">{t('admin.confirmUserAction', { name: banModal?.pseudo, defaultValue: 'Confirm this action for {{name}}?' })}</p>
         {actionError && <p role="alert" className="text-error mb-3">{actionError}</p>}
         <Button disabled={saving} onClick={() => banModal && handleBan(banModal.id)}>{t('common.confirm')}</Button>
       </Modal>
@@ -177,8 +180,8 @@ export default function AdminUsersPage() {
         <div className="space-y-4">
           {actionError && <p role="alert" className="text-error">{actionError}</p>}
           <p className="text-gray-400">{t('admin.currentBalance')}: <span className="text-white font-bold">{balanceModal?.balance.toLocaleString()} GC</span></p>
-          <Input id="amount" label={t('admin.amount')} type="number" value={String(adjustAmount)} onChange={e => setAdjustAmount(Number(e.target.value))} />
-          <Input id="reason" label={t('admin.reason')} type="text" value={adjustReason} onChange={e => setAdjustReason(e.target.value)} />
+          <Input id="amount" label={`${t('admin.amount')} (GC)`} type="number" step="1" required value={String(adjustAmount)} onChange={e => setAdjustAmount(Number(e.target.value))} />
+          <Input id="reason" label={t('admin.reason', { defaultValue: 'Reason (required)' })} type="text" required value={adjustReason} onChange={e => setAdjustReason(e.target.value)} />
           <div className="flex gap-3">
             <Button variant="ghost" fullWidth onClick={() => setBalanceModal(null)}>{t('common.cancel')}</Button>
             <Button fullWidth onClick={handleAdjustBalance} disabled={saving || !Number.isSafeInteger(adjustAmount) || !adjustAmount || !adjustReason.trim()}>{t('common.confirm')}</Button>
@@ -191,19 +194,19 @@ export default function AdminUsersPage() {
         onClose={() => { ++txRequest.current; setTxModal(null); }}
         title={`${t('admin.transactions')} - ${txModal?.pseudo || ''}`}
       >
-        <div className="space-y-2 max-h-96 overflow-y-auto">
+        <div className="space-y-2 max-h-[60dvh] overflow-y-auto overscroll-contain">
           {txLoading ? (
-            <p className="text-gray-400">{t('common.loading')}</p>
+            <p role="status" className="casino-empty text-gray-400">{t('common.loading')}</p>
           ) : txError ? <p role="alert" className="text-error">{txError}</p> : transactions.length === 0 ? (
-            <p className="text-gray-500">{t('admin.noTransactions')}</p>
+            <p className="casino-empty text-gray-400">{t('admin.noTransactions')}</p>
           ) : (
             transactions.map(tx => (
-              <div key={tx.id} className="flex justify-between items-center py-2 border-b border-gray-800 last:border-0">
-                <div>
-                  <p className="text-sm text-white">{tx.description || tx.type}</p>
+              <div key={tx.id} className="flex flex-wrap justify-between items-start gap-3 py-3 border-b border-white/10 last:border-0">
+                <div className="min-w-0 flex-1 basis-40">
+                  <p className="text-sm text-white break-words">{tx.description || tx.type}</p>
                   <p className="text-xs text-gray-500">{new Date(tx.createdAt).toLocaleString()}</p>
                 </div>
-                <span className={`text-sm font-semibold ${tx.amount >= 0 ? 'text-success' : 'text-error'}`}>
+                <span className={`max-w-full break-words text-sm tabular-nums font-semibold ${tx.amount >= 0 ? 'text-success' : 'text-error'}`}>
                   {tx.amount >= 0 ? '+' : ''}{tx.amount.toLocaleString()} GC
                 </span>
               </div>

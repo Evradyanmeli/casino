@@ -2,21 +2,24 @@ import api from './api';
 import type { DashboardStats, AdminUserRow, GameStat, GameConfig, SystemSetting, AuditLog, ChatMessageFull, HouseBalance } from '@/types';
 
 export function capitalUsage(house: HouseBalance): number {
-  return house.capital > 0 ? ((house.capital - house.balance) / house.capital) * 100 : 0;
+  return house.capital > 0 ? ((house.capital - (house.totalBalance ?? house.balance)) / house.capital) * 100 : 0;
 }
 
 export const economyDefaults: Record<string, number> = {
   welcome_bonus: 5000, daily_reward_base: 1000, daily_reward_streak_7: 2500,
   daily_reward_streak_30: 10000, competition_prize_first: 2500,
   competition_prize_second: 1500, competition_prize_third: 1000,
-  task_reward_base: 250, task_reward_all: 1000, default_house_edge: 5,
+  default_house_edge: 5,
 };
 
 export function parseSettingValue(key: string, text: string): unknown {
+  if (key === 'task_reward_base' || key === 'task_reward_all') throw new Error('Unsupported setting');
   const value: unknown = JSON.parse(text);
   if (Object.hasOwnProperty.call(economyDefaults, key) &&
     (typeof value !== 'number' || !Number.isFinite(value) || value < 0 ||
-      (key === 'default_house_edge' ? value >= 100 : !Number.isSafeInteger(value)) || (key.startsWith('daily_reward_') && value === 0))) {
+      (key === 'default_house_edge' ? value >= 100 : !Number.isSafeInteger(value)) ||
+      (key.startsWith('daily_reward_') && value === 0) ||
+      (key.startsWith('competition_prize_') && value > 2147483647))) {
     throw new Error('Invalid setting value');
   }
   return value;

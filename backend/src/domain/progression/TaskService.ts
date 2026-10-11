@@ -2,6 +2,7 @@ import { PrismaClient, UserTask } from '@prisma/client';
 import { LevelService } from './LevelService.js';
 import { EconomyService } from '../economy/EconomyService.js';
 import { AppError } from '../auth/AuthService.js';
+import { runFinancialOperation } from '../economy/FinancialOperation.js';
 
 export class TaskService {
   constructor(private prisma: PrismaClient, private levelService?: LevelService) {}
@@ -16,8 +17,8 @@ export class TaskService {
     return this.prisma.userTask.findMany({ where: { userId, task: { type: 'weekly' } }, include: { task: true } });
   }
 
-  async claimTask(userId: string, userTaskId: string): Promise<{ xp: number; coins: number; leveledUp: boolean; newLevel: number }> {
-    return this.prisma.$transaction(async tx => {
+  async claimTask(userId: string, userTaskId: string, key?: string): Promise<{ xp: number; coins: number; leveledUp: boolean; newLevel: number }> {
+    return runFinancialOperation(this.prisma, userId, 'task_reward', key, { userTaskId }, async tx => {
       const ut = await tx.userTask.findUnique({ where: { id: userTaskId }, include: { task: true } });
       if (!ut || ut.userId !== userId) throw new AppError('Task not found', 404);
       const now = new Date();
@@ -27,8 +28,8 @@ export class TaskService {
       const reward = ut.task.reward as { xp: number; coins: number };
       if (!Number.isSafeInteger(reward.xp) || reward.xp < 0 || reward.xp > 2147483647 ||
         !Number.isSafeInteger(reward.coins) || reward.coins < 0) throw new AppError('Invalid task reward', 400);
-      if (reward.coins > 0) await new EconomyService(tx).addBalance(userId, BigInt(reward.coins), 'task_reward', ut.id, ut.task.title);
       const level = await new LevelService(tx).addXp(userId, reward.xp);
+      if (reward.coins > 0) await new EconomyService(tx).addBalance(userId, BigInt(reward.coins), 'task_reward', ut.id, ut.task.title);
       return { xp: reward.xp, coins: reward.coins, leveledUp: level.leveledUp, newLevel: level.newLevel };
     });
   }

@@ -9,8 +9,9 @@ import { BlackjackService } from '../../domain/games/blackjack/BlackjackService.
 import { VideoPokerService } from '../../domain/games/videopoker/VideoPokerService.js';
 import { CrapsService } from '../../domain/games/craps/CrapsService.js';
 import { WheelService } from '../../domain/games/wheel/WheelService.js';
-import { KenoService } from '../../domain/games/keno/KenoService.js';
-import { PlinkoService } from '../../domain/games/plinko/PlinkoService.js';
+import { KenoService, PAYOUTS as KENO_PAYOUTS } from '../../domain/games/keno/KenoService.js';
+import { PlinkoService, MULTIPLIERS as PLINKO_PAYOUTS } from '../../domain/games/plinko/PlinkoService.js';
+import { runFinancialOperation } from '../../domain/economy/FinancialOperation.js';
 import { EconomyService } from '../../domain/economy/EconomyService.js';
 import { LevelService } from '../../domain/progression/LevelService.js';
 import { TaskService } from '../../domain/progression/TaskService.js';
@@ -128,7 +129,7 @@ export default async function gamesRoutes(app: FastifyInstance) {
         mineCount: z.coerce.number().int().min(1).max(24),
       });
       const body = schema.parse(request.body);
-      const result = await minesService.startGame(request.user.sub, body.bet, body.mineCount);
+      const result = await minesService.startGame(request.user.sub, body.bet, body.mineCount, request.headers['idempotency-key'] as string | undefined);
       await handleStateProgression(request.user.sub, 'mines', result.sessionId, result.bet, result.payout);
       return result;
     } catch (err) { return handleError(err, reply); }
@@ -162,7 +163,7 @@ export default async function gamesRoutes(app: FastifyInstance) {
     try {
       const schema = z.object({ bet: z.coerce.number().int().positive().safe(), autoCashout: z.coerce.number().min(1.01).max(1000000).optional() });
       const body = schema.parse(request.body);
-      const result = await crashService.placeBet(request.user.sub, body.bet, body.autoCashout);
+      const result = await crashService.placeBet(request.user.sub, body.bet, body.autoCashout, request.headers['idempotency-key'] as string | undefined);
       await handleStateProgression(request.user.sub, 'crash', result.roundId, body.bet, 0);
       return result;
     } catch (err) { return handleError(err, reply); }
@@ -190,8 +191,10 @@ export default async function gamesRoutes(app: FastifyInstance) {
         targetMultiplier: z.coerce.number().min(1.00).max(1000000),
       });
       const body = schema.parse(request.body);
-      const result = await limboService.play(request.user.sub, body.bet, body.targetMultiplier);
-      await handleProgression(request.user.sub, 'limbo', result.payout || 0, body.bet);
+      let performed = false;
+      const result = await runFinancialOperation(app.prisma, request.user.sub, 'limbo_play', request.headers['idempotency-key'] as string | undefined, body,
+        tx => { performed = true; return new LimboService(tx).play(request.user.sub, body.bet, body.targetMultiplier); });
+      if (performed) await handleProgression(request.user.sub, 'limbo', result.payout || 0, body.bet);
       return result;
     } catch (err) { return handleError(err, reply); }
   });
@@ -204,8 +207,10 @@ export default async function gamesRoutes(app: FastifyInstance) {
         bet: z.coerce.number().int().positive(),
       });
       const body = schema.parse(request.body);
-      const result = await slotsService.spin(request.user.sub, body.variant, body.bet);
-      await handleProgression(request.user.sub, `slots_${body.variant}`, result.totalWin, body.bet * ({ classic: 3, fruit: 5, diamond: 10 }[body.variant]));
+      let performed = false;
+      const result = await runFinancialOperation(app.prisma, request.user.sub, 'slots_spin', request.headers['idempotency-key'] as string | undefined, body,
+        tx => { performed = true; return new SlotsService(tx).spin(request.user.sub, body.variant, body.bet); });
+      if (performed) await handleProgression(request.user.sub, `slots_${body.variant}`, result.totalWin, body.bet * ({ classic: 3, fruit: 5, diamond: 10 }[body.variant]));
       return result;
     } catch (err) { return handleError(err, reply); }
   });
@@ -221,8 +226,10 @@ export default async function gamesRoutes(app: FastifyInstance) {
         })).min(1),
       });
       const body = schema.parse(request.body);
-      const result = await rouletteService.spin(request.user.sub, body.bets);
-      await handleProgression(request.user.sub, 'roulette', result.totalWin, body.bets.reduce((s, b) => s + b.amount, 0));
+      let performed = false;
+      const result = await runFinancialOperation(app.prisma, request.user.sub, 'roulette_spin', request.headers['idempotency-key'] as string | undefined, body,
+        tx => { performed = true; return new RouletteService(tx).spin(request.user.sub, body.bets); });
+      if (performed) await handleProgression(request.user.sub, 'roulette', result.totalWin, body.bets.reduce((s, b) => s + b.amount, 0));
       return result;
     } catch (err) { return handleError(err, reply); }
   });
@@ -232,7 +239,7 @@ export default async function gamesRoutes(app: FastifyInstance) {
     try {
       const schema = z.object({ bet: z.coerce.number().int().positive() });
       const body = schema.parse(request.body);
-      const result = await blackjackService.startRound(request.user.sub, body.bet);
+      const result = await blackjackService.startRound(request.user.sub, body.bet, request.headers['idempotency-key'] as string | undefined);
       await handleStateProgression(request.user.sub, 'blackjack', result.sessionId, result.bet, result.payout);
       return result;
     } catch (err) { return handleError(err, reply); }
@@ -262,7 +269,7 @@ export default async function gamesRoutes(app: FastifyInstance) {
     try {
       const schema = z.object({ sessionId: z.string(), handIndex: z.coerce.number().int().min(0) });
       const body = schema.parse(request.body);
-      const result = await blackjackService.doubleDown(request.user.sub, body.sessionId, body.handIndex);
+      const result = await blackjackService.doubleDown(request.user.sub, body.sessionId, body.handIndex, request.headers['idempotency-key'] as string | undefined);
       await handleStateProgression(request.user.sub, 'blackjack', result.sessionId, result.bet, result.payout);
       return result;
     } catch (err) { return handleError(err, reply); }
@@ -272,7 +279,7 @@ export default async function gamesRoutes(app: FastifyInstance) {
     try {
       const schema = z.object({ sessionId: z.string(), handIndex: z.coerce.number().int().min(0) });
       const body = schema.parse(request.body);
-      const result = await blackjackService.split(request.user.sub, body.sessionId, body.handIndex);
+      const result = await blackjackService.split(request.user.sub, body.sessionId, body.handIndex, request.headers['idempotency-key'] as string | undefined);
       await handleStateProgression(request.user.sub, 'blackjack', result.sessionId, result.bet, result.payout);
       return result;
     } catch (err) { return handleError(err, reply); }
@@ -282,7 +289,7 @@ export default async function gamesRoutes(app: FastifyInstance) {
     try {
       const schema = z.object({ sessionId: z.string(), amount: z.coerce.number().int().positive() });
       const body = schema.parse(request.body);
-      const result = await blackjackService.insurance(request.user.sub, body.sessionId, body.amount);
+      const result = await blackjackService.insurance(request.user.sub, body.sessionId, body.amount, request.headers['idempotency-key'] as string | undefined);
       await handleStateProgression(request.user.sub, 'blackjack', result.sessionId, result.bet, result.payout);
       return result;
     } catch (err) { return handleError(err, reply); }
@@ -293,7 +300,7 @@ export default async function gamesRoutes(app: FastifyInstance) {
     try {
       const schema = z.object({ bet: z.coerce.number().int().min(1).max(5) });
       const body = schema.parse(request.body);
-      const result = await videoPokerService.deal(request.user.sub, body.bet);
+      const result = await videoPokerService.deal(request.user.sub, body.bet, request.headers['idempotency-key'] as string | undefined);
       await handleStateProgression(request.user.sub, 'videopoker', result.sessionId, result.bet, result.payout);
       return result;
     } catch (err) { return handleError(err, reply); }
@@ -317,7 +324,7 @@ export default async function gamesRoutes(app: FastifyInstance) {
     try {
       const schema = z.object({ bet: z.coerce.number().int().positive() });
       const body = schema.parse(request.body);
-      const result = await crapsService.startRound(request.user.sub, body.bet);
+      const result = await crapsService.startRound(request.user.sub, body.bet, request.headers['idempotency-key'] as string | undefined);
       await handleStateProgression(request.user.sub, 'craps', result.sessionId, result.passBet + result.oddsBet, result.payout);
       return result;
     } catch (err) { return handleError(err, reply); }
@@ -327,7 +334,7 @@ export default async function gamesRoutes(app: FastifyInstance) {
     try {
       const schema = z.object({ sessionId: z.string(), oddsBet: z.coerce.number().int().positive() });
       const body = schema.parse(request.body);
-      const result = await crapsService.addOdds(request.user.sub, body.sessionId, body.oddsBet);
+      const result = await crapsService.addOdds(request.user.sub, body.sessionId, body.oddsBet, request.headers['idempotency-key'] as string | undefined);
       await handleStateProgression(request.user.sub, 'craps', result.sessionId, result.passBet + result.oddsBet, result.payout);
       return result;
     } catch (err) { return handleError(err, reply); }
@@ -348,9 +355,11 @@ export default async function gamesRoutes(app: FastifyInstance) {
     try {
       const schema = z.object({ bet: z.coerce.number().int().positive() });
       const body = schema.parse(request.body);
-      const result = await instantWager(app.prisma, request.user.sub, 'wheel', body.bet,
-        async () => wheelService.spin(request.user.sub, body.bet, await houseEdge(app.prisma, 'wheel', 5)), r => r.payout);
-      await handleProgression(request.user.sub, 'wheel', result.payout, body.bet);
+      let performed = false;
+      const result = await runFinancialOperation(app.prisma, request.user.sub, 'wheel_spin', request.headers['idempotency-key'] as string | undefined, body,
+        tx => { performed = true; return instantWager(tx, request.user.sub, 'wheel', body.bet,
+          async () => wheelService.spin(request.user.sub, body.bet, await houseEdge(tx, 'wheel', 5)), r => r.payout, body.bet * 50); });
+      if (performed) await handleProgression(request.user.sub, 'wheel', result.payout, body.bet);
       return result;
     } catch (err) { return handleError(err, reply); }
   });
@@ -363,9 +372,12 @@ export default async function gamesRoutes(app: FastifyInstance) {
         numbers: z.array(z.coerce.number().int().min(1).max(80)).min(1).max(10),
       });
       const body = schema.parse(request.body);
-      const result = await instantWager(app.prisma, request.user.sub, 'keno', body.bet,
-        () => kenoService.play(request.user.sub, body.bet, body.numbers), r => r.payout);
-      await handleProgression(request.user.sub, 'keno', result.payout, body.bet);
+      let performed = false;
+      const result = await runFinancialOperation(app.prisma, request.user.sub, 'keno_play', request.headers['idempotency-key'] as string | undefined, body,
+        tx => { performed = true; return instantWager(tx, request.user.sub, 'keno', body.bet,
+          () => kenoService.play(request.user.sub, body.bet, body.numbers), r => r.payout,
+          body.bet * Math.max(...Object.values(KENO_PAYOUTS[body.numbers.length]))); });
+      if (performed) await handleProgression(request.user.sub, 'keno', result.payout, body.bet);
       return result;
     } catch (err) { return handleError(err, reply); }
   });
@@ -379,9 +391,12 @@ export default async function gamesRoutes(app: FastifyInstance) {
         rows: z.coerce.number().int().refine(v => [8, 12, 16].includes(v), { message: 'Rows must be 8, 12, or 16' }),
       });
       const body = schema.parse(request.body);
-      const result = await instantWager(app.prisma, request.user.sub, 'plinko', body.bet,
-        () => plinkoService.drop(request.user.sub, body.bet, body.risk, body.rows), r => r.payout);
-      await handleProgression(request.user.sub, 'plinko', result.payout, body.bet);
+      let performed = false;
+      const result = await runFinancialOperation(app.prisma, request.user.sub, 'plinko_drop', request.headers['idempotency-key'] as string | undefined, body,
+        tx => { performed = true; return instantWager(tx, request.user.sub, 'plinko', body.bet,
+          () => plinkoService.drop(request.user.sub, body.bet, body.risk, body.rows), r => r.payout,
+          Math.ceil(body.bet * Math.max(...PLINKO_PAYOUTS[body.risk][body.rows]))); });
+      if (performed) await handleProgression(request.user.sub, 'plinko', result.payout, body.bet);
       return result;
     } catch (err) { return handleError(err, reply); }
   });
@@ -392,7 +407,7 @@ export default async function gamesRoutes(app: FastifyInstance) {
       const { game } = request.params as { game: string };
       const result = await app.prisma.gameSession.groupBy({
         by: ['gameType'],
-        where: { userId: request.user.sub, gameType: game },
+        where: { userId: request.user.sub, gameType: game, endedAt: { gt: new Date(0) } },
         _count: { id: true },
         _sum: { betAmount: true, winAmount: true },
       });

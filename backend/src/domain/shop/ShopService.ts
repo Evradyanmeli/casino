@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { AppError } from '../auth/AuthService.js';
 import { EconomyService } from '../economy/EconomyService.js';
 import { ResponsibleGamingService } from '../rg/ResponsibleGamingService.js';
+import { runFinancialOperation } from '../economy/FinancialOperation.js';
 
 interface TokenPackage {
   id: string;
@@ -28,13 +29,13 @@ export class ShopService {
     return PACKAGES.map(pkg => ({ ...pkg }));
   }
 
-  async purchasePackage(userId: string, packageId: string): Promise<{ tokensAwarded: number; newBalance: number }> {
+  async purchasePackage(userId: string, packageId: string, key?: string): Promise<{ tokensAwarded: number; newBalance: number }> {
     const pkg = PACKAGES.find(p => p.id === packageId);
     if (!pkg) throw new AppError('Pack introuvable', 404);
 
     const totalTokens = pkg.tokens + (pkg.bonus ?? 0);
 
-    return new EconomyService(this.prisma).runInTransaction(async tx => {
+    return runFinancialOperation(this.prisma, userId, 'shop_purchase', key, { packageId }, async tx => {
       // Serialize the limit check with other purchases for this user.
       const locked = await tx.user.updateMany({
         where: { id: userId, status: 'ACTIVE' }, data: { balance: { increment: 0n } },

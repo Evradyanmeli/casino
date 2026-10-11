@@ -17,6 +17,15 @@ export class LevelService {
   async addXp(userId: string, amount: number): Promise<{ newXp: number; newLevel: number; leveledUp: boolean }> {
     if (!Number.isSafeInteger(amount) || amount < 0 || amount > 2147483647) throw new AppError('XP invalide', 400);
     return new EconomyService(this.prisma).runInTransaction(async tx => {
+      const now = new Date();
+      let race = amount > 0 ? await tx.race.findFirst({ where: { status: 'active', startAt: { lte: now }, endAt: { gte: now } } }) : null;
+      if (race) {
+        // Serialize with ranking before locking User; recheck time after any lock wait.
+        await tx.race.updateMany({ where: { id: race.id, status: 'active' }, data: { status: 'active' } });
+        race = await tx.race.findUnique({ where: { id: race.id } });
+        const lockedAt = new Date();
+        if (!race || race.status !== 'active' || race.startAt > lockedAt || race.endAt <= lockedAt) race = null;
+      }
       const changed = await tx.user.updateMany({ where: { id: userId, xp: { lte: 2147483647 - amount } },
         data: { xp: { increment: amount } } });
       if (!changed.count) throw new AppError('Utilisateur introuvable ou limite XP atteinte', 400);
@@ -30,8 +39,6 @@ export class LevelService {
         if (leveledUp) await new NotificationService(tx).createNotification(userId, 'level_up',
           JSON.stringify({ title: 'Montée de niveau !', message: `Vous avez atteint le niveau ${currentLevel} !` }));
       }
-      const now = new Date();
-      const race = amount > 0 ? await tx.race.findFirst({ where: { status: 'active', startAt: { lte: now }, endAt: { gte: now } } }) : null;
       if (race) {
         await tx.raceEntry.upsert({ where: { raceId_userId: { raceId: race.id, userId } },
           create: { raceId: race.id, userId, xp: 0 }, update: {} });

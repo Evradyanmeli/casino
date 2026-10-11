@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { useAuth } from './hooks/useAuth';
 import { useAuthStore } from './store/authStore';
 import i18n from './i18n/config';
@@ -20,23 +21,24 @@ import AdminNotificationsPage from '@/pages/admin/AdminNotificationsPage';
 import AdminPage from './pages/AdminPage';
 import ShopPage from './components/shop/ShopPage';
 import ResponsibleGamingPage from './components/rg/ResponsibleGamingPage';
-import { SlotsGame } from './components/games/SlotsGame';
-import { RouletteGame } from './components/games/RouletteGame';
-import CrapsGame from './components/games/CrapsGame';
-import WheelGame from './components/games/WheelGame';
-import KenoGame from './components/games/KenoGame';
-import PlinkoGame from './components/games/PlinkoGame';
-import BlackjackGame from './components/games/BlackjackGame';
-import VideoPokerGame from './components/games/VideoPokerGame';
-import MinesGame from './components/games/MinesGame';
-import CrashGame from './components/games/CrashGame';
-import LimboGame from './components/games/LimboGame';
-import PokerPage from './components/games/PokerPage';
-import BingoPage from './components/games/BingoPage';
 import Layout from './components/layout/Layout';
 
+const SlotsGame = lazy(() => import('./components/games/SlotsGame').then(m => ({ default: m.SlotsGame })));
+const RouletteGame = lazy(() => import('./components/games/RouletteGame').then(m => ({ default: m.RouletteGame })));
+const CrapsGame = lazy(() => import('./components/games/CrapsGame'));
+const WheelGame = lazy(() => import('./components/games/WheelGame'));
+const KenoGame = lazy(() => import('./components/games/KenoGame'));
+const PlinkoGame = lazy(() => import('./components/games/PlinkoGame'));
+const BlackjackGame = lazy(() => import('./components/games/BlackjackGame'));
+const VideoPokerGame = lazy(() => import('./components/games/VideoPokerGame'));
+const MinesGame = lazy(() => import('./components/games/MinesGame'));
+const CrashGame = lazy(() => import('./components/games/CrashGame'));
+const LimboGame = lazy(() => import('./components/games/LimboGame'));
+const PokerPage = lazy(() => import('./components/games/PokerPage'));
+const BingoPage = lazy(() => import('./components/games/BingoPage'));
+
 function GamePage({ children }: { children: React.ReactNode }) {
-  return <Layout>{children}</Layout>;
+  return <Layout><div className="casino-game"><Suspense fallback={<p role="status" className="py-16 text-center text-slate-400">{i18n.t('common.loading')}</p>}>{children}</Suspense></div></Layout>;
 }
 
 function PlayerRoute({ children }: { children: React.ReactNode }) {
@@ -83,19 +85,19 @@ function App() {
       <Route path="/admin/legacy" element={<AdminRoute><AdminPage /></AdminRoute>} />
       <Route path="/shop" element={<PlayerRoute><ShopPage /></PlayerRoute>} />
       <Route path="/responsible-gaming" element={<PlayerRoute><ResponsibleGamingPage /></PlayerRoute>} />
-      <Route path="/game/slots" element={<PlayerRoute><SlotsGame /></PlayerRoute>} />
-      <Route path="/game/roulette" element={<PlayerRoute><RouletteGame /></PlayerRoute>} />
-      <Route path="/game/blackjack" element={<PlayerRoute><BlackjackGame /></PlayerRoute>} />
-      <Route path="/game-videopoker" element={<PlayerRoute><VideoPokerGame /></PlayerRoute>} />
+      <Route path="/game/slots" element={<PlayerRoute><GamePage><SlotsGame /></GamePage></PlayerRoute>} />
+      <Route path="/game/roulette" element={<PlayerRoute><GamePage><RouletteGame /></GamePage></PlayerRoute>} />
+      <Route path="/game/blackjack" element={<PlayerRoute><GamePage><BlackjackGame /></GamePage></PlayerRoute>} />
+      <Route path="/game-videopoker" element={<PlayerRoute><GamePage><VideoPokerGame /></GamePage></PlayerRoute>} />
       <Route path="/game-craps" element={<PlayerRoute><GamePage><CrapsGame /></GamePage></PlayerRoute>} />
       <Route path="/game-wheel" element={<PlayerRoute><GamePage><WheelGame /></GamePage></PlayerRoute>} />
       <Route path="/game-keno" element={<PlayerRoute><GamePage><KenoGame /></GamePage></PlayerRoute>} />
       <Route path="/game-plinko" element={<PlayerRoute><GamePage><PlinkoGame /></GamePage></PlayerRoute>} />
-      <Route path="/game-mines" element={<PlayerRoute><MinesGame /></PlayerRoute>} />
-      <Route path="/game-crash" element={<PlayerRoute><CrashGame /></PlayerRoute>} />
-      <Route path="/game-limbo" element={<PlayerRoute><LimboGame /></PlayerRoute>} />
-      <Route path="/game-poker" element={<PlayerRoute><PokerPage /></PlayerRoute>} />
-      <Route path="/game-bingo" element={<PlayerRoute><BingoPage /></PlayerRoute>} />
+      <Route path="/game-mines" element={<PlayerRoute><GamePage><MinesGame /></GamePage></PlayerRoute>} />
+      <Route path="/game-crash" element={<PlayerRoute><GamePage><CrashGame /></GamePage></PlayerRoute>} />
+      <Route path="/game-limbo" element={<PlayerRoute><GamePage><LimboGame /></GamePage></PlayerRoute>} />
+      <Route path="/game-poker" element={<PlayerRoute><GamePage><PokerPage /></GamePage></PlayerRoute>} />
+      <Route path="/game-bingo" element={<PlayerRoute><GamePage><BingoPage /></GamePage></PlayerRoute>} />
       <Route path="/" element={<Navigate to={isAuthenticated ? (user?.role === 'ADMIN' ? '/admin' : '/lobby') : '/login'} />} />
     </Routes>
   );

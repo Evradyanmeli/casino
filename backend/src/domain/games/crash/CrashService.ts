@@ -3,6 +3,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { AppError } from '../../auth/AuthService.js';
 import { EconomyService } from '../../economy/EconomyService.js';
 import { GameLock, houseEdge, openWager, settleWager, validBet } from '../GameSupport.js';
+import { runFinancialOperation } from '../../economy/FinancialOperation.js';
 
 interface CrashPlayer {
   userId: string; bet: number; cashedOutAt: number | null; payout: number; autoCashout?: number;
@@ -25,8 +26,7 @@ export class CrashService {
   private failures = 0;
   constructor(private prisma: PrismaClient, private onSettled?: (roundId: string, player: CrashPlayer) => Promise<void>) {}
 
-  private publicState(): CrashState {
-    const r = this.round!;
+  private publicState(r = this.round!): CrashState {
     return { sessionId: 'crash-main', roundId: r.id, state: r.state, multiplier: r.multiplier,
       ...(r.state === 'crashed' ? { crashPoint: r.crashPoint } : {}),
       players: r.players.map(({ wagerId, settled, ...player }) => structuredClone(player)) };
@@ -107,19 +107,23 @@ export class CrashService {
     });
   }
 
-  async placeBet(userId: string, bet: number, autoCashout?: number): Promise<CrashState> {
+  async placeBet(userId: string, bet: number, autoCashout?: number, key?: string): Promise<CrashState> {
     validBet(bet);
     if (autoCashout !== undefined && (!Number.isFinite(autoCashout) || autoCashout < 1.01 || autoCashout > 1000000)) throw new AppError('Auto cashout must be between 1.01 and 1000000', 400);
     this.getCurrentState();
     return this.lock.run('round', async () => {
       const r = structuredClone(this.round!);
+      let performed = false;
+      const result = await runFinancialOperation(this.prisma, userId, 'crash_bet', key, { bet, autoCashout }, async tx => {
       if (r.state !== 'waiting') throw new AppError('Cannot place bet during active round', 400);
       if (r.players.some(p => p.userId === userId)) throw new AppError('Bet already placed for this round', 409);
-      let wagerId = '';
-      await new EconomyService(this.prisma).runInTransaction(async tx => { wagerId = await openWager(tx, userId, 'crash', bet); });
+      const wagerId = await openWager(tx, userId, 'crash', bet, bet * 1000);
       r.players.push({ userId, bet, autoCashout, cashedOutAt: null, payout: 0, wagerId, settled: false });
-      this.round = r;
-      return this.publicState();
+      performed = true;
+      return this.publicState(r);
+      });
+      if (performed) this.round = r;
+      return result;
     });
   }
 

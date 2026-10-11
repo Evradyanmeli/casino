@@ -11,7 +11,7 @@ interface KenoState {
   state: 'betting' | 'result';
 }
 
-const PAYOUTS: Record<number, Record<number, number>> = {
+export const PAYOUTS: Record<number, Record<number, number>> = {
   1: { 1: 3 },
   2: { 2: 12, 1: 2 },
   3: { 3: 42, 2: 2 },

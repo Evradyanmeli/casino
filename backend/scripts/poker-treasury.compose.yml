@@ -1,0 +1,4 @@
+services:
+  backend:
+    image: casino-poker-treasury-tests
+    pull_policy: never

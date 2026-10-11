@@ -6,6 +6,7 @@ import Input from '@/components/ui/Input';
 import { authApi } from '@/services/auth';
 import { useAuthStore } from '@/store/authStore';
 import { useBalanceStore } from '@/store/balanceStore';
+import { PlayingCard, CasinoChip } from '@/components/games/GameVisuals';
 
 export default function RegisterPage() {
   const { t } = useTranslation();
@@ -55,21 +56,30 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0D0D1A] px-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-display font-bold text-gold tracking-wider mb-2">
-            CASINO<span className="text-white">X</span>
-          </h1>
-          <p className="text-gray-400">{t('auth.register.title')}</p>
-        </div>
+    <main className="player-shell min-h-screen flex items-center justify-center px-3 py-6 sm:px-6 sm:py-12">
+      <div className="grid w-full max-w-5xl min-w-0 gap-4 lg:grid-cols-2 lg:gap-6">
+        <section className="casino-stage flex min-w-0 items-center justify-between gap-4 p-5 sm:p-8 lg:flex-col lg:items-start lg:justify-center lg:p-10">
+          <div className="min-w-0">
+            <p className="casino-eyebrow">CASINO X</p>
+            <h2 className="text-xl text-[#f1e7d1] sm:text-3xl lg:text-4xl" style={{ fontFamily: 'Georgia, serif' }}>Une place a votre nom.</h2>
+            <p className="mt-4 hidden max-w-sm text-sm leading-relaxed text-[#b8c5be] lg:block">{t('casino.disclaimer')}</p>
+          </div>
+          <div className="flex shrink-0 items-end gap-2 lg:mt-10 lg:gap-5" aria-hidden="true">
+            <PlayingCard small card={{ rank: 'A', suit: 'hearts' }} className="-rotate-12 lg:!w-[72px]" />
+            <PlayingCard small hidden className="hidden rotate-12 sm:block lg:!w-[72px]" />
+            <CasinoChip value="GC" className="lg:!h-16 lg:!w-16" />
+          </div>
+        </section>
 
-        <div className="card">
+        <section className="casino-panel min-w-0 p-5 sm:p-8 lg:p-10" aria-labelledby="register-title">
+          <p className="casino-eyebrow">Votre compte</p>
+          <h1 id="register-title" className="casino-title mb-6">{t('auth.register.title')}</h1>
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input
               id="pseudo"
               label={t('auth.register.pseudo')}
               type="text"
+              autoComplete="nickname"
               value={pseudo}
               onChange={(e) => setPseudo(e.target.value)}
               placeholder="Pseudo"
@@ -81,6 +91,7 @@ export default function RegisterPage() {
               id="email"
               label={t('auth.register.email')}
               type="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="exemple@email.com"
@@ -91,6 +102,7 @@ export default function RegisterPage() {
               id="password"
               label={t('auth.register.password')}
               type="password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
@@ -102,6 +114,8 @@ export default function RegisterPage() {
               id="birthDate"
               label={t('auth.register.birthDate')}
               type="date"
+              autoComplete="bday"
+              className="min-w-0"
               value={birthDate}
               onChange={(e) => setBirthDate(e.target.value)}
               required
@@ -112,7 +126,7 @@ export default function RegisterPage() {
             )}
 
             {error && (
-              <div className="bg-error/10 border border-error text-error text-sm rounded-lg p-3">
+              <div role="alert" className="bg-error/10 border border-error text-error text-sm rounded-lg p-3">
                 {error}
               </div>
             )}
@@ -124,14 +138,14 @@ export default function RegisterPage() {
 
           <div className="relative my-6">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-700" />
+              <div className="w-full border-t border-white/10" />
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-[#1A1A2E] text-gray-500">ou</span>
+              <span className="px-3 bg-[#16202d] text-gray-400">ou</span>
             </div>
           </div>
 
-          <Button variant="outline" fullWidth onClick={authApi.loginWithGoogle}>
+          <Button variant="outline" fullWidth disabled title="Google indisponible tant que le fournisseur n'est pas configure">
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
               <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
@@ -140,15 +154,16 @@ export default function RegisterPage() {
             </svg>
             {t('auth.register.google')}
           </Button>
+          <p className="mt-2 text-center text-xs leading-relaxed text-gray-400">Google est actuellement indisponible.</p>
 
           <p className="mt-6 text-center text-gray-400 text-sm">
             {t('auth.register.haveAccount')}{' '}
-            <Link to="/login" className="text-gold hover:underline font-medium">
+            <Link to="/login" className="inline-flex min-h-11 items-center text-[#e6cc94] hover:underline font-medium">
               {t('auth.register.login')}
             </Link>
           </p>
-        </div>
+        </section>
       </div>
-    </div>
+    </main>
   );
 }

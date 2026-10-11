@@ -2,27 +2,12 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import Layout from '@/components/layout/Layout';
 import { DailyRewardCard } from '@/components/economy/DailyRewardCard';
-import { Dices, Swords, FerrisWheel, Spade, Dice5, Grid3X3, Bomb, TrendingUp, CircleDot, Rocket, Target, Diamond, ListChecks, Flag } from 'lucide-react';
+import { ListChecks, Flag } from 'lucide-react';
+import { CasinoArtwork, PlayingCard, CasinoChip } from '@/components/games/GameVisuals';
 
 const gameRoute = (slug: string) => {
   const prefix = (['slots', 'roulette', 'blackjack'] as const).includes(slug as any) ? '/game/' : '/game-';
   return prefix + slug;
-};
-
-const gameIcons: Record<string, React.ReactNode> = {
-  slots: <Dices className="w-6 h-6" />,
-  blackjack: <Swords className="w-6 h-6" />,
-  roulette: <FerrisWheel className="w-6 h-6" />,
-  poker: <Spade className="w-6 h-6" />,
-  craps: <Dice5 className="w-6 h-6" />,
-  bingo: <Grid3X3 className="w-6 h-6" />,
-  mines: <Bomb className="w-6 h-6" />,
-  crash: <TrendingUp className="w-6 h-6" />,
-  plinko: <CircleDot className="w-6 h-6" />,
-  wheel: <FerrisWheel className="w-6 h-6" />,
-  limbo: <Rocket className="w-6 h-6" />,
-  keno: <Target className="w-6 h-6" />,
-  videopoker: <Diamond className="w-6 h-6" />,
 };
 
 const games = [
@@ -48,27 +33,35 @@ export default function LobbyPage() {
   return (
     <Layout>
       <div className="space-y-8">
+        <section className="lobby-hero">
+          <div className="relative z-10 flex flex-col items-start justify-center">
+            <p className="casino-eyebrow">{t('casino.welcome')}</p>
+            <h1 className="lobby-title max-w-md">{t('casino.heroTitle')}</h1>
+            <p className="mt-4 max-w-md text-sm leading-relaxed text-[#b8c5be]">{t('casino.heroDescription')}</p>
+            <a href="#game-collection" className="mt-6 inline-flex min-h-11 items-center gap-3 rounded-full border border-[#d1b675]/40 bg-[#c7a35e]/10 px-5 py-2 text-sm font-semibold text-[#e6cc94] hover:bg-[#c7a35e]/20">{t('casino.explore')}<span aria-hidden="true">↓</span></a>
+          </div>
+          <div className="lobby-hero-art" aria-hidden="true"><PlayingCard card={{rank:'A',suit:'spades'}} /><PlayingCard card={{rank:'K',suit:'hearts'}} /><CasinoChip value={25} /><CasinoChip value={100} /></div>
+        </section>
         <DailyRewardCard />
 
-        <div>
-          <h2 className="text-2xl font-display text-white mb-6">{t('lobby.games')}</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {games.map((game) => (
+        <section id="game-collection" className="scroll-mt-24">
+          <div className="mb-5 flex items-end justify-between gap-3"><div><p className="casino-eyebrow">{t('casino.collection')}</p><h2 className="text-2xl text-[#f1e7d1]" style={{fontFamily:'Georgia, serif'}}>{t('lobby.games')}</h2></div><span className="text-xs text-slate-500">13 {t('casino.experiences')}</span></div>
+          <div className="grid grid-cols-1 min-[400px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {games.map((game, index) => (
               <button
                 key={game.slug}
                 onClick={() => navigate(gameRoute(game.slug))}
-                className="group relative overflow-hidden rounded-xl bg-[#1A1A2E] border border-gray-800 hover:border-gray-600 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-black/30"
+                className="casino-game-tile group"
+                aria-label={`${t('lobby.playNow')} : ${t(game.nameKey)}`}
               >
-                <div className={`absolute inset-0 bg-gradient-to-br ${game.color} opacity-0 group-hover:opacity-20 transition-opacity duration-300`} />
-                <div className="relative p-4 flex items-center gap-4">
-                  <div className={`w-14 h-14 flex-shrink-0 rounded-xl bg-gradient-to-br ${game.color} flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-                    {gameIcons[game.icon]}
-                  </div>
+                <CasinoArtwork game={game.slug} />
+                <div className="relative p-4 flex items-center gap-3">
+                  <span className="text-[10px] tabular-nums text-[#ad9360]">{String(index + 1).padStart(2, '0')}</span>
                   <div className="text-left">
                     <p className="text-sm font-semibold text-white group-hover:text-gold transition-colors">
                       {t(game.nameKey)}
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">{t('lobby.playNow')}</p>
+                    <p className="text-xs text-gray-500 mt-1">{t(`casino.genres.${game.slug}`)}</p>
                   </div>
                   <svg className="w-5 h-5 text-gray-600 ml-auto flex-shrink-0 group-hover:text-gold transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -77,7 +70,7 @@ export default function LobbyPage() {
               </button>
             ))}
           </div>
-        </div>
+        </section>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <button onClick={() => navigate('/tasks')} className="card flex items-center justify-between hover:border-gray-600 transition-all duration-200">

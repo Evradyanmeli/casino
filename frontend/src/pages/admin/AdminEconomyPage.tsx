@@ -2,13 +2,15 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
+import PageHeader from '@/components/ui/PageHeader';
+import { CasinoChip } from '@/components/games/GameVisuals';
 import { adminApi, economyDefaults, parseSettingValue } from '@/services/admin';
 import { requestError } from '@/services/feedback';
 import type { SystemSetting } from '@/types';
 
 export default function AdminEconomyPage() {
   const { t } = useTranslation();
-  const [settings, setSettings] = useState<Record<string, any>>({});
+  const [settings, setSettings] = useState<Record<string, number | string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [original, setOriginal] = useState<Record<string, number>>({});
@@ -16,17 +18,15 @@ export default function AdminEconomyPage() {
   const [loadError, setLoadError] = useState('');
   const [saved, setSaved] = useState(false);
 
-  const settingDefaults: Record<string, { label: string; type: string; default: any }> = {
-    welcome_bonus: { label: t('admin.welcomeBonus'), type: 'number', default: 5000 },
-    daily_reward_base: { label: t('admin.dailyRewardBase'), type: 'number', default: 1000 },
-    daily_reward_streak_7: { label: t('admin.dailyRewardStreak7'), type: 'number', default: 2500 },
-    daily_reward_streak_30: { label: t('admin.dailyRewardStreak30'), type: 'number', default: 10000 },
-    competition_prize_first: { label: t('admin.compPrizeFirst'), type: 'number', default: 2500 },
-    competition_prize_second: { label: t('admin.compPrizeSecond'), type: 'number', default: 1500 },
-    competition_prize_third: { label: t('admin.compPrizeThird'), type: 'number', default: 1000 },
-    task_reward_base: { label: t('admin.taskRewardBase'), type: 'number', default: 250 },
-    task_reward_all: { label: t('admin.taskRewardAll'), type: 'number', default: 1000 },
-    default_house_edge: { label: t('admin.defaultHouseEdge'), type: 'number', default: 5 },
+  const labels: Record<string, string> = {
+    welcome_bonus: t('admin.welcomeBonus'),
+    daily_reward_base: t('admin.dailyRewardBase'),
+    daily_reward_streak_7: t('admin.dailyRewardStreak7'),
+    daily_reward_streak_30: t('admin.dailyRewardStreak30'),
+    competition_prize_first: t('admin.compPrizeFirst'),
+    competition_prize_second: t('admin.compPrizeSecond'),
+    competition_prize_third: t('admin.compPrizeThird'),
+    default_house_edge: t('admin.defaultHouseEdge'),
   };
 
   useEffect(() => {
@@ -54,100 +54,85 @@ export default function AdminEconomyPage() {
     }
   };
 
-  const updateSetting = (key: string, value: any) => {
+  const updateSetting = (key: string, value: string) => {
     setSettings(s => ({ ...s, [key]: value }));
     setSaved(false);
     setError('');
   };
 
   if (loading) {
-    return <p className="text-gray-400">{t('common.loading')}</p>;
+    return <div className="space-y-6"><PageHeader title={t('admin.economySettings')} eyebrow="Administration" /><p role="status" className="casino-empty text-gray-400">{t('common.loading')}</p></div>;
   }
-  if (loadError) return <p role="alert" className="text-error">{loadError}</p>;
-
-  const settingKeys = Object.keys(settingDefaults);
+  if (loadError) return <div className="space-y-6"><PageHeader title={t('admin.economySettings')} eyebrow="Administration" /><p role="alert" className="casino-panel p-5 break-words text-error">{loadError}</p></div>;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-display text-gold">{t('admin.economySettings')}</h1>
+      <PageHeader title={t('admin.economySettings')} eyebrow="Administration" description={t('admin.persistDefaults', { defaultValue: 'Review virtual currency rewards and save to apply the displayed values.' })}>
+        <Button variant="ghost" disabled={saving} onClick={() => { setSettings({ ...original }); setError(''); setSaved(false); }}>{t('admin.resetOriginal', { defaultValue: 'Reset changes' })}</Button>
         <Button onClick={handleSaveAll} disabled={saving}>
-          {saving ? t('common.saving') : t('common.save')}
+          {saving ? t('admin.saving') : t('common.save')}
         </Button>
-      </div>
-      <p className="text-xs text-gray-400">{t('admin.persistDefaults')}</p>
+      </PageHeader>
       {error && <p role="alert" className="text-error">{error}</p>}
-      {saved && <p role="status" className="text-success">{t('feedback.saved')}</p>}
-      <Button variant="ghost" disabled={saving} onClick={() => { setSettings({ ...original }); setError(''); setSaved(false); }}>{t('admin.resetOriginal')}</Button>
+      {saved && <p role="status" className="text-success">{t('feedback.saved', { defaultValue: 'Changes saved.' })}</p>}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card">
-          <h2 className="text-lg font-display text-white mb-4">{t('admin.bonuses')}</h2>
+        <div className="casino-panel p-5 sm:p-6">
+          <div className="mb-5 flex items-center justify-between gap-3"><h2 className="casino-section text-xl" style={{ fontFamily: 'Georgia, serif' }}>{t('admin.bonuses')}</h2><CasinoChip value="GC" color="#236750" className="opacity-60" /></div>
           <div className="space-y-3">
             {['welcome_bonus', 'daily_reward_base', 'daily_reward_streak_7', 'daily_reward_streak_30'].map(key => (
               <div key={key}>
-                <label htmlFor={`economy-${key}`} className="block text-sm font-medium text-gray-300 mb-1">{settingDefaults[key].label}</label>
-                <input
+                <Input
                   id={`economy-${key}`}
+                  label={`${labels[key]} (GC)`}
                   type="number"
-                  value={settings[key] ?? settingDefaults[key].default}
-                  onChange={e => updateSetting(key, parseInt(e.target.value) || 0)}
-                  className="input-field"
+                  min={key === 'welcome_bonus' ? 0 : 1}
+                  step="1"
+                  value={settings[key] ?? economyDefaults[key]}
+                  onChange={e => updateSetting(key, e.target.value)}
+                  disabled={saving}
                 />
               </div>
             ))}
           </div>
         </div>
 
-        <div className="card">
-          <h2 className="text-lg font-display text-white mb-4">{t('admin.competitions')}</h2>
+        <div className="casino-panel p-5 sm:p-6">
+          <h2 className="casino-section text-xl mb-5" style={{ fontFamily: 'Georgia, serif' }}>{t('admin.competitions')}</h2>
           <div className="space-y-3">
             {['competition_prize_first', 'competition_prize_second', 'competition_prize_third'].map(key => (
               <div key={key}>
-                <label htmlFor={`economy-${key}`} className="block text-sm font-medium text-gray-300 mb-1">{settingDefaults[key].label}</label>
-                <input
+                <Input
                   id={`economy-${key}`}
+                  label={`${labels[key]} (GC)`}
                   type="number"
-                  value={settings[key] ?? settingDefaults[key].default}
-                  onChange={e => updateSetting(key, parseInt(e.target.value) || 0)}
-                  className="input-field"
+                  min="0"
+                  max="2147483647"
+                  step="1"
+                  value={settings[key] ?? economyDefaults[key]}
+                  onChange={e => updateSetting(key, e.target.value)}
+                  disabled={saving}
                 />
               </div>
             ))}
           </div>
         </div>
 
-        <div className="card">
-          <h2 className="text-lg font-display text-white mb-4">{t('admin.taskRewards')}</h2>
-          <div className="space-y-3">
-            {['task_reward_base', 'task_reward_all'].map(key => (
-              <div key={key}>
-                <label htmlFor={`economy-${key}`} className="block text-sm font-medium text-gray-300 mb-1">{settingDefaults[key].label}</label>
-                <input
-                  id={`economy-${key}`}
-                  type="number"
-                  value={settings[key] ?? settingDefaults[key].default}
-                  onChange={e => updateSetting(key, parseInt(e.target.value) || 0)}
-                  className="input-field"
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="card">
-          <h2 className="text-lg font-display text-white mb-4">{t('admin.general')}</h2>
+        <div className="casino-panel p-5 sm:p-6 lg:col-span-2">
+          <h2 className="casino-section text-xl mb-5" style={{ fontFamily: 'Georgia, serif' }}>{t('admin.general')}</h2>
           <div className="space-y-3">
             {['default_house_edge'].map(key => (
               <div key={key}>
-                <label htmlFor={`economy-${key}`} className="block text-sm font-medium text-gray-300 mb-1">{settingDefaults[key].label}</label>
-                <input
+                <Input
                   id={`economy-${key}`}
+                  label={labels[key]}
                   type="number"
                   step="0.1"
-                  value={settings[key] ?? settingDefaults[key].default}
-                  onChange={e => updateSetting(key, parseFloat(e.target.value) || 0)}
-                  className="input-field"
+                  min="0"
+                  max="99.9"
+                  value={settings[key] ?? economyDefaults[key]}
+                  onChange={e => updateSetting(key, e.target.value)}
+                  disabled={saving}
                 />
               </div>
             ))}

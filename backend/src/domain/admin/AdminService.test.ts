@@ -50,7 +50,7 @@ describe('AdminService', () => {
     const ctx = testDatabase({ user: [{ ...admin, email: 'admin@casino.com', balance: 2000n }],
       systemSetting: [{ key: 'initial_capital', value: 10000 }] });
     expect(await new AdminService(ctx.db).getHouseBalance()).toEqual({ balance: 2000, capital: 10000,
-      capitalUsed: 8000, capitalUsagePercent: 80 });
+      reservedBots: 0, reservedGames: 0, totalBalance: 2000, capitalUsed: 8000, capitalUsagePercent: 80 });
     ctx.state.systemSetting.length = 0;
     expect((await new AdminService(ctx.db).getHouseBalance()).capital).toBe(50000000);
   });
@@ -67,6 +67,45 @@ describe('AdminService', () => {
     expect(ctx.state.user[1].balance).toBe(900n);
     expect(ctx.state.transaction).toHaveLength(1);
     expect(ctx.state.auditLog).toHaveLength(1);
+  });
+  it('counts reserved bot capital as treasury, not money already spent', async () => {
+    const ctx = testDatabase({ user: [{ ...admin, email: 'admin@casino.com', balance: 5400n }], transaction: [
+      { userId: admin.id, type: 'poker_bot_funding', metadata: { escrowStatus: 'active', escrowAmount: '640' } },
+      { userId: admin.id, type: 'poker_bot_funding', metadata: { escrowStatus: 'closed', escrowAmount: '1000' } },
+      { userId: player.id, type: 'poker_buyin', metadata: { escrowStatus: 'active', escrowAmount: '200' } },
+    ], systemSetting: [{ key: 'initial_capital', value: 6000 }] });
+    expect(await new AdminService(ctx.db).getHouseBalance()).toMatchObject({ balance: 5400, reservedBots: 640, totalBalance: 6040, capitalUsed: -40 });
+  });
+
+  it('includes only active house game checkpoints in treasury without changing cash or bot balances', async () => {
+    const now = new Date();
+    const ctx = testDatabase({ user: [{ ...admin, email: 'admin@casino.com', balance: 2000n, updatedAt: now }], transaction: [
+      { userId: admin.id, type: 'poker_bot_funding', amount: -600n, metadata: { escrowStatus: 'active', escrowAmount: '640' } },
+      { userId: admin.id, type: 'game_house_reserve', amount: -1000n, metadata: { escrowStatus: 'active', escrowAmount: '1200' } },
+      { userId: admin.id, type: 'game_house_reserve', amount: -800n, metadata: { escrowStatus: 'active', escrowAmount: '800' } },
+      { userId: admin.id, type: 'game_house_reserve', amount: -500n, metadata: { escrowStatus: 'closed', escrowAmount: '500' } },
+      { userId: admin.id, type: 'game_house_reserve', amount: -100n, metadata: null },
+      { userId: player.id, type: 'game_house_reserve', amount: -200n, metadata: { escrowStatus: 'active', escrowAmount: '200' } },
+      { userId: admin.id, type: 'poker_buyin', amount: -300n, metadata: { escrowStatus: 'active', escrowAmount: '300' } },
+    ], systemSetting: [{ key: 'initial_capital', value: 10000 }] });
+    const before = structuredClone(ctx.state);
+    const service = new AdminService(ctx.db);
+    expect(await service.getHouseBalance()).toEqual({ balance: 2000, reservedBots: 640, reservedGames: 2000,
+      totalBalance: 4640, capital: 10000, capitalUsed: 5360, capitalUsagePercent: 53.6 });
+    expect(await service.getDashboardStats()).toMatchObject({ houseBalance: 2000 });
+    expect(ctx.state).toEqual(before);
+    expect(ctx.mocks.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: 'RepeatableRead' });
+  });
+
+  it('keeps escrow totals exact beyond the safe integer range and reports zero for a missing house', async () => {
+    const ctx = testDatabase({ user: [{ ...admin, email: 'admin@casino.com', balance: 9007199254740991n }], transaction: [
+      { userId: admin.id, type: 'game_house_reserve', metadata: { escrowStatus: 'active', escrowAmount: '1' } },
+      { userId: admin.id, type: 'game_house_reserve', metadata: { escrowStatus: 'active', escrowAmount: '2' } },
+    ] });
+    const service = new AdminService(ctx.db);
+    expect(await service.getHouseBalance()).toMatchObject({ reservedGames: 3, totalBalance: '9007199254740994' });
+    ctx.state.user.length = 0;
+    expect(await service.getHouseBalance()).toMatchObject({ balance: 0, reservedBots: 0, reservedGames: 0, totalBalance: 0 });
   });
 
   it('prevents concurrent deductions from producing a negative balance', async () => {
@@ -157,6 +196,50 @@ describe('AdminService', () => {
     expect(ctx.state.auditLog.at(-1)?.action).toBe('delete_setting');
   });
 
+  it('hides unsupported task settings without deleting persisted values and rejects their writes', async () => {
+    const ctx = testDatabase({ user: [admin], systemSetting: [
+      { key: 'task_reward_base', value: 999 }, { key: 'task_reward_all', value: 777 },
+    ] });
+    const service = new AdminService(ctx.db);
+    expect((await service.getSettings()).some(s => s.key.startsWith('task_reward_'))).toBe(false);
+    for (const key of ['task_reward_base', 'task_reward_all']) {
+      await expect(service.updateSetting(key, 100, admin.id)).rejects.toMatchObject({ statusCode: 400 });
+      await expect(service.deleteSetting(key, admin.id)).rejects.toMatchObject({ statusCode: 400 });
+    }
+    expect(ctx.state.systemSetting.map(s => s.value)).toEqual([999, 777]);
+    expect(ctx.state.auditLog).toEqual([]);
+  });
+
+  it('enforces the storage bound for every competition prize and rolls back a batch', async () => {
+    const ctx = testDatabase({ user: [admin] });
+    const service = new AdminService(ctx.db);
+    for (const key of ['competition_prize_first', 'competition_prize_second', 'competition_prize_third']) {
+      await expect(service.updateSettings([{ key: 'welcome_bonus', value: 123 },
+        { key, value: 2147483648 }], admin.id)).rejects.toMatchObject({ statusCode: 400 });
+      expect(ctx.state.systemSetting).toEqual([]);
+      expect(ctx.state.auditLog).toEqual([]);
+    }
+    await service.updateSetting('competition_prize_first', 2147483647, admin.id);
+    expect(ctx.state.systemSetting[0].value).toBe(2147483647);
+  });
+
+  it('replays adjustment and recharge responses with no second journal or audit', async () => {
+    const house = { ...admin, id: 'house', email: 'admin@casino.com' };
+    const ctx = testDatabase({ user: [admin, player, house] });
+    const service = new AdminService(ctx.db);
+    const adjustment = await service.adjustUserBalance(player.id, 50, 'reason', admin.id, 'adjust-1');
+    expect(await service.adjustUserBalance(player.id, 50, 'reason', admin.id, 'adjust-1')).toEqual(adjustment);
+    await expect(service.adjustUserBalance(player.id, 51, 'reason', admin.id, 'adjust-1')).rejects.toMatchObject({ statusCode: 409 });
+    await expect(service.adjustUserBalance(house.id, 50, 'reason', admin.id, 'adjust-1')).rejects.toMatchObject({ statusCode: 409 });
+    await expect(service.adjustUserBalance(player.id, 50, 'different', admin.id, 'adjust-1')).rejects.toMatchObject({ statusCode: 409 });
+    const recharge = await service.rechargeHouse(100, admin.id, 'recharge-1');
+    expect(await service.rechargeHouse(100, admin.id, 'recharge-1')).toEqual(recharge);
+    expect(ctx.state.user[1].balance).toBe(1050n);
+    expect(ctx.state.user[2].balance).toBe(5100n);
+    expect(ctx.state.transaction).toHaveLength(2);
+    expect(ctx.state.auditLog).toHaveLength(2);
+  });
+
   it('atomically deletes chat messages and persists chat-only mutes', async () => {
     const ctx = testDatabase({ user: [admin, player], chatMessage: [{ id: 'message', userId: player.id, content: 'hello', room: 'global' }] });
     const service = new AdminService(ctx.db);
@@ -182,6 +265,24 @@ describe('AdminService', () => {
 });
 
 describe('admin HTTP contract', () => {
+  it('forwards financial keys and rejects a different payload for the same key', async () => {
+    const ctx = testDatabase({ user: [admin, player] });
+    const app = Fastify();
+    app.decorate('prisma', ctx.db);
+    app.decorate('authenticate', async (request: any) => { request.user = { sub: admin.id }; });
+    await app.register(adminRoutes);
+    try {
+      const request = { method: 'POST' as const, url: `/admin/users/${player.id}/adjust-balance`,
+        headers: { 'idempotency-key': 'http-adjust' }, payload: { amount: 10, reason: 'test' } };
+      const first = await app.inject(request);
+      expect(first.statusCode).toBe(200);
+      expect((await app.inject(request)).json()).toEqual(first.json());
+      expect((await app.inject({ ...request, payload: { amount: 20, reason: 'test' } })).statusCode).toBe(409);
+      expect(ctx.state.transaction).toHaveLength(1);
+      expect(ctx.state.auditLog).toHaveLength(1);
+    } finally { await app.close(); }
+  });
+
   it('uses JWT sub for every mutation and validates the period and query bounds', async () => {
     const ctx = testDatabase({ user: [admin, player] });
     const app = Fastify();

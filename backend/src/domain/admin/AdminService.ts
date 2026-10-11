@@ -1,13 +1,8 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { AppError } from '../auth/AuthService.js';
-
-export const ECONOMIC_DEFAULTS: Record<string, number> = {
-  welcome_bonus: 5000, daily_reward_base: 1000, daily_reward_streak_7: 2500,
-  daily_reward_streak_30: 10000, competition_prize_first: 2500,
-  competition_prize_second: 1500, competition_prize_third: 1000,
-  task_reward_base: 250, task_reward_all: 1000, default_house_edge: 5,
-  initial_capital: 50000000,
-};
+import { ECONOMIC_DEFAULTS, isValidEconomicSetting } from '../economy/EconomicSettings.js';
+import { runFinancialOperation } from '../economy/FinancialOperation.js';
+export { ECONOMIC_DEFAULTS } from '../economy/EconomicSettings.js';
 
 export const GAME_DEFAULTS: Record<string, { minBet: number; maxBet: number }> = {
   slots: { minBet: 1, maxBet: 100000 }, roulette: { minBet: 1, maxBet: 100000 },
@@ -110,10 +105,10 @@ export class AdminService {
     });
   }
 
-  async adjustUserBalance(userId: string, amount: number, reason: string, adminId: string) {
+  async adjustUserBalance(userId: string, amount: number, reason: string, adminId: string, key?: string) {
     this.integer(amount, Number.MIN_SAFE_INTEGER);
     if (!amount || !reason?.trim() || reason.trim().length > 1000) throw new AppError('Motif et montant requis', 400);
-    return this.prisma.$transaction(async tx => {
+    return runFinancialOperation(this.prisma, adminId, 'admin_adjust_balance', key, { userId, amount, reason: reason.trim() }, async tx => {
       await this.assertAdmin(tx, adminId);
       const user = await tx.user.findUnique({ where: { id: userId } });
       if (!user) throw new AppError('Utilisateur introuvable', 404);
@@ -127,6 +122,7 @@ export class AdminService {
       await tx.auditLog.create({ data: { adminId, action: 'adjust_user_balance', entity: 'user', entityId: userId,
         before: { balance: (after.balance - BigInt(amount)).toString() },
         after: { balance: after.balance.toString(), amount, reason: reason.trim() } } });
+      return { success: true };
     });
   }
 
@@ -151,7 +147,7 @@ export class AdminService {
   }
 
   async getSettings() {
-    const persisted = (await this.prisma.systemSetting.findMany()).filter(s => !/^(session_started:|race_calendar:|slots_bonus:|chat_muted_user_ids$)/.test(s.key));
+    const persisted = (await this.prisma.systemSetting.findMany()).filter(s => !/^(session_started:|race_calendar:|slots_bonus:|chat_muted_user_ids$|task_reward_base$|task_reward_all$)/.test(s.key));
     const keys = new Set(persisted.map(s => s.key));
     return [...persisted, ...Object.entries(ECONOMIC_DEFAULTS).filter(([key]) => !keys.has(key))
       .map(([key, value]) => ({ key, value }))];
@@ -168,13 +164,10 @@ export class AdminService {
       await this.assertAdmin(tx, adminId);
       for (const { key, value } of settings) {
         const before = await tx.systemSetting.findUnique({ where: { key } });
-        if (/^(session_started:|race_calendar:|slots_bonus:|chat_muted_user_ids$)/.test(key) || (!Object.hasOwn(ECONOMIC_DEFAULTS, key) && !before))
+        if (/^(session_started:|race_calendar:|slots_bonus:|chat_muted_user_ids$|task_reward_base$|task_reward_all$)/.test(key) || (!Object.hasOwn(ECONOMIC_DEFAULTS, key) && !before))
           throw new AppError('Parametre inconnu ou reserve', 400);
         if (Object.hasOwn(ECONOMIC_DEFAULTS, key)) {
-          if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 ||
-            (key === 'default_house_edge' ? value >= 100 : !Number.isSafeInteger(value)) ||
-            (key.startsWith('daily_reward_') && value === 0) ||
-            (key === 'initial_capital' && value === 0)) throw new AppError('Valeur invalide', 400);
+          if (!isValidEconomicSetting(key, value)) throw new AppError('Valeur invalide', 400);
         }
         await tx.systemSetting.upsert({ where: { key }, update: { value }, create: { key, value } });
         await tx.auditLog.create({ data: { adminId, action: 'update_setting', entity: 'system_setting', entityId: key,
@@ -186,7 +179,7 @@ export class AdminService {
   async deleteSetting(key: string, adminId: string) {
     return this.prisma.$transaction(async tx => {
       await this.assertAdmin(tx, adminId);
-      if (/^(session_started:|race_calendar:|slots_bonus:|chat_muted_user_ids$)/.test(key)) throw new AppError('Parametre reserve', 400);
+      if (/^(session_started:|race_calendar:|slots_bonus:|chat_muted_user_ids$|task_reward_base$|task_reward_all$)/.test(key)) throw new AppError('Parametre reserve', 400);
       const before = await tx.systemSetting.findUnique({ where: { key } });
       if (!before) throw new AppError('Parametre introuvable', 404);
       await tx.systemSetting.delete({ where: { key } });
@@ -196,20 +189,33 @@ export class AdminService {
   }
 
   async getHouseBalance() {
-    const [house, setting] = await Promise.all([
-      this.prisma.user.findFirst({ where: { role: 'ADMIN', email: 'admin@casino.com' }, select: { balance: true } }),
-      this.prisma.systemSetting.findUnique({ where: { key: 'initial_capital' } }),
-    ]);
-    const capital = typeof setting?.value === 'number' && Number.isSafeInteger(setting.value) && setting.value > 0
-      ? setting.value : ECONOMIC_DEFAULTS.initial_capital;
-    const balance = house?.balance ?? 0n;
-    const used = BigInt(capital) - balance;
-    return adminDTO({ balance, capital, capitalUsed: used, capitalUsagePercent: Number(used * 10000n / BigInt(capital)) / 100 });
+    return this.prisma.$transaction(async tx => {
+      const [house, setting] = await Promise.all([
+        tx.user.findFirst({ where: { role: 'ADMIN', email: 'admin@casino.com' }, select: { id: true, balance: true } }),
+        tx.systemSetting.findUnique({ where: { key: 'initial_capital' } }),
+      ]);
+      const capital = typeof setting?.value === 'number' && Number.isSafeInteger(setting.value) && setting.value > 0
+        ? setting.value : ECONOMIC_DEFAULTS.initial_capital;
+      const balance = house?.balance ?? 0n;
+      const reserves = house ? await tx.transaction.findMany({ where: { userId: house.id,
+        type: { in: ['poker_bot_funding', 'game_house_reserve'] },
+        metadata: { path: ['escrowStatus'], equals: 'active' } }, select: { type: true, metadata: true } }) : [];
+      let reservedBots = 0n, reservedGames = 0n;
+      for (const entry of reserves) {
+        const amount = BigInt((entry.metadata as { escrowAmount: string }).escrowAmount);
+        if (entry.type === 'poker_bot_funding') reservedBots += amount;
+        else reservedGames += amount;
+      }
+      const totalBalance = balance + reservedBots + reservedGames;
+      const used = BigInt(capital) - totalBalance;
+      return adminDTO({ balance, reservedBots, reservedGames, totalBalance, capital, capitalUsed: used,
+        capitalUsagePercent: Number(used * 10000n / BigInt(capital)) / 100 });
+    }, { isolationLevel: 'RepeatableRead' });
   }
 
-  async rechargeHouse(amount: number, adminId: string) {
+  async rechargeHouse(amount: number, adminId: string, key?: string) {
     this.integer(amount, 1);
-    return this.prisma.$transaction(async tx => {
+    return runFinancialOperation(this.prisma, adminId, 'admin_house_recharge', key, { amount }, async tx => {
       await this.assertAdmin(tx, adminId);
       const house = await tx.user.findFirst({ where: { role: 'ADMIN', email: 'admin@casino.com' } });
       if (!house) throw new AppError('House account not found', 404);
@@ -221,6 +227,7 @@ export class AdminService {
         description: `House recharge: ${amount} GC` } });
       await tx.auditLog.create({ data: { adminId, action: 'house_recharge', entity: 'house_account', entityId: house.id,
         before: { balance: (after.balance - BigInt(amount)).toString() }, after: { amount, balance: after.balance.toString() } } });
+      return { success: true };
     });
   }
 

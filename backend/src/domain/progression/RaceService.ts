@@ -1,6 +1,8 @@
 import { PrismaClient, Race, RaceEntry } from '@prisma/client';
 import { EconomyService } from '../economy/EconomyService.js';
 import { AppError } from '../auth/AuthService.js';
+import { ECONOMIC_DEFAULTS, isValidEconomicSetting } from '../economy/EconomicSettings.js';
+import { runFinancialOperation } from '../economy/FinancialOperation.js';
 
 export class RaceService {
   constructor(private prisma: PrismaClient, private io?: any) {}
@@ -9,12 +11,16 @@ export class RaceService {
     const now = new Date();
     await this.prisma.$transaction(async tx => {
       const expired = await tx.race.findMany({ where: { status: { in: ['active', 'upcoming'] }, endAt: { lt: now } } });
-      for (const race of expired) {
-        const closed = await tx.race.updateMany({ where: { id: race.id, status: { in: ['active', 'upcoming'] } }, data: { status: 'completed' } });
+      for (const candidate of expired) {
+        // This Race lock is also held by addXp until its entry update commits.
+        const closed = await tx.race.updateMany({ where: { id: candidate.id, status: { in: ['active', 'upcoming'] }, endAt: { lt: new Date() } }, data: { status: 'completed' } });
         if (!closed.count) continue;
+        const race = await tx.race.findUniqueOrThrow({ where: { id: candidate.id } });
         const entries = await tx.raceEntry.findMany({ where: { raceId: race.id }, orderBy: [{ xp: 'desc' }, { userId: 'asc' }] });
         for (const [index, entry] of entries.entries()) {
-          await tx.raceEntry.update({ where: { id: entry.id }, data: { rank: index + 1, prize: this.prizeForRank(race, index + 1) } });
+          const prize = this.prizeForRank(race, index + 1);
+          if (!Number.isSafeInteger(prize) || prize < 0 || prize > 2147483647) throw new AppError('Invalid race prize', 400);
+          await tx.raceEntry.update({ where: { id: entry.id }, data: { rank: index + 1, prize } });
         }
       }
     });
@@ -30,10 +36,11 @@ export class RaceService {
 
       if (!race) race = await this.createNextRace();
       if (race && now >= race.startAt && now <= race.endAt) {
-        race = await this.prisma.race.update({
-          where: { id: race.id },
+        await this.prisma.race.updateMany({
+          where: { id: race.id, status: 'upcoming', endAt: { gt: new Date() } },
           data: { status: 'active' },
         });
+        race = await this.prisma.race.findUnique({ where: { id: race.id } });
       }
     }
 
@@ -56,6 +63,7 @@ export class RaceService {
     });
 
     if (!entry) return { rank: 0, xp: 0, prize: 0 };
+    if (entry.rank) return { rank: entry.rank, xp: entry.xp, prize: entry.prize };
 
     const higher = await this.prisma.raceEntry.count({
       where: { raceId, OR: [{ xp: { gt: entry.xp } }, { xp: entry.xp, userId: { lt: userId } }] },
@@ -66,15 +74,19 @@ export class RaceService {
     return { rank, xp: entry.xp, prize };
   }
 
-  async claimPrize(userId: string, raceId: string): Promise<number> {
-    return this.prisma.$transaction(async tx => {
-      const entry = await tx.raceEntry.findUnique({ where: { raceId_userId: { raceId, userId } }, include: { race: true } });
-      if (!entry) throw new AppError('Race entry not found', 404);
+  async claimPrize(userId: string, raceId?: string, key?: string): Promise<number> {
+    return runFinancialOperation(this.prisma, userId, 'race_prize', key, { raceId: raceId ?? null }, async tx => {
+      // Resolve the optional target inside the operation so a retry replays the same prize.
+      const entry = raceId
+        ? await tx.raceEntry.findUnique({ where: { raceId_userId: { raceId, userId } }, include: { race: true } })
+        : await tx.raceEntry.findFirst({ where: { userId, claimed: false, race: { status: 'completed' } },
+          orderBy: { race: { endAt: 'desc' } }, include: { race: true } });
+      if (!entry) throw new AppError(raceId ? 'Race entry not found' : 'No race found', raceId ? 404 : 400);
       if (entry.race.status !== 'completed' || entry.race.endAt >= new Date()) throw new AppError('Race not completed yet', 400);
       if (!entry.rank || entry.rank < 1) throw new AppError('Race not ranked yet', 400);
-      const prize = this.prizeForRank(entry.race, entry.rank);
+      const prize = entry.prize;
       if (!Number.isSafeInteger(prize) || prize < 0 || prize > 2147483647) throw new AppError('Invalid race prize', 400);
-      const claimed = await tx.raceEntry.updateMany({ where: { id: entry.id, userId, claimed: false }, data: { claimed: true, prize } });
+      const claimed = await tx.raceEntry.updateMany({ where: { id: entry.id, userId, claimed: false }, data: { claimed: true } });
       if (!claimed.count) throw new AppError('Prize already claimed', 400);
       if (prize > 0) await new EconomyService(tx).addBalance(userId, BigInt(prize), 'race_prize', entry.id, entry.race.name);
       return prize;
@@ -96,7 +108,7 @@ export class RaceService {
   private prizeForRank(race: Race, rank: number): number {
     const prizeMap = race.prize as Record<string, number>;
 
-    if (prizeMap[rank]) return prizeMap[rank];
+    if (Object.hasOwn(prizeMap, rank)) return prizeMap[rank];
 
     for (const [key, val] of Object.entries(prizeMap)) {
       if (key.includes('_')) {
@@ -130,13 +142,11 @@ export class RaceService {
       const existing = await tx.race.findFirst({ where: { startAt: mondayStart, endAt } });
       if (existing) return existing;
       const settings = await tx.systemSetting.findMany({ where: { key: { in: ['competition_prize_first', 'competition_prize_second', 'competition_prize_third'] } } });
-      const prizes: Record<string, number> = { 1: 2500, 2: 1500, 3: 1000, '4_10': 0 };
+      const prizes: Record<string, number> = { '4_10': 0 };
       for (const [index, key] of ['competition_prize_first', 'competition_prize_second', 'competition_prize_third'].entries()) {
-        const value = settings.find(s => s.key === key)?.value;
-        if (value !== undefined) {
-          if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > 2147483647) throw new AppError('Invalid race prize configuration', 400);
-          prizes[index + 1] = value;
-        }
+        const value = settings.find(s => s.key === key)?.value ?? ECONOMIC_DEFAULTS[key];
+        if (!isValidEconomicSetting(key, value)) throw new AppError('Invalid race prize configuration', 400);
+        prizes[index + 1] = value;
       }
       return tx.race.create({ data: {
         name: `Course Semaine ${weekNumber}`,

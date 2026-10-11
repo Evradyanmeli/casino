@@ -73,7 +73,8 @@ export default async function adminRoutes(app: FastifyInstance) {
         reason: z.string().trim().min(1).max(1000),
       });
       const body = schema.parse(request.body);
-      await adminService.adjustUserBalance(id, body.amount, body.reason, request.user.sub);
+      await adminService.adjustUserBalance(id, body.amount, body.reason, request.user.sub,
+        request.headers['idempotency-key'] as string | undefined);
       return { success: true };
     } catch (err) {
       if (err instanceof z.ZodError) return reply.status(400).send({ error: 'Validation error', details: err.errors });
@@ -155,7 +156,7 @@ export default async function adminRoutes(app: FastifyInstance) {
     try {
       const schema = z.object({ amount: z.number().int().safe().positive() });
       const body = schema.parse(request.body);
-      await adminService.rechargeHouse(body.amount, request.user.sub);
+      await adminService.rechargeHouse(body.amount, request.user.sub, request.headers['idempotency-key'] as string | undefined);
       return { success: true };
     } catch (err) {
       if (err instanceof z.ZodError) return reply.status(400).send({ error: 'Validation error', details: err.errors });

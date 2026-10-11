@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:poker:e2e": "node tests/poker-session.e2e.cjs",
+    "test:visual": "node tests/frontend-visual.e2e.cjs",
     "lint": "eslint src/"
   },
   "dependencies": {

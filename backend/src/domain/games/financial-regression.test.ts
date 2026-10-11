@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { testDatabase, player } from '../admin/testSupport.js';
 import { EconomyService } from '../economy/EconomyService.js';
-import { openWager, settleWager, instantWager } from './GameSupport.js';
+import { openWager, increaseWager, settleWager, instantWager } from './GameSupport.js';
 import { openEscrow, saveEscrow, recoverInterruptedFunds } from './Escrow.js';
 import { BlackjackService } from './blackjack/BlackjackService.js';
 import { VideoPokerService } from './videopoker/VideoPokerService.js';
@@ -15,24 +15,25 @@ import { UserService } from '../user/UserService.js';
 vi.mock('node:crypto', async original => ({ ...await original<typeof import('node:crypto')>(),
   randomInt: (min: number, max?: number) => max === undefined ? min - 1 : min,
 }));
-const database = () => testDatabase({ user: [player] });
+const database = () => testDatabase({ user: [player, { ...player, id: 'house', role: 'ADMIN', email: 'admin@casino.com', balance: 1000000000000n }] });
 beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('Durable financial settlement', () => {
   it('settles a wager once, with its ledger, and ignores unfinished games in profile stats', async () => {
     const ctx = database(); const economy = new EconomyService(ctx.db);
-    const id = await economy.runInTransaction(tx => openWager(tx, player.id, 'blackjack', 10));
+    const id = await economy.runInTransaction(tx => openWager(tx, player.id, 'blackjack', 10, 30));
     expect((await new UserService(ctx.db).getStats(player.id)).totalSessions).toBe(0);
     await economy.runInTransaction(tx => settleWager(tx, id, player.id, 'blackjack', 20, { won: true }));
     await expect(economy.runInTransaction(tx => settleWager(tx, id, player.id, 'blackjack', 20, {}))).rejects.toThrow('already settled');
     expect(ctx.state.user[0].balance).toBe(1010n);
-    expect(ctx.state.transaction.map(t => t.amount)).toEqual([-10n, 20n]);
+    expect(ctx.state.transaction.filter(t => t.userId === player.id).map(t => t.amount)).toEqual([-10n, 20n]);
+    expect(ctx.state.user[1].balance).toBe(999999999990n);
     expect((await new UserService(ctx.db).getStats(player.id)).totalSessions).toBe(1);
   });
   it('rolls back a debit if an instant result or its settlement fails', async () => {
     const ctx = database();
-    await expect(instantWager(ctx.db, player.id, 'roulette', 10, async () => { throw Error('engine failed'); }, () => 0)).rejects.toThrow();
+    await expect(instantWager(ctx.db, player.id, 'roulette', 10, async () => { throw Error('engine failed'); }, () => 0, 360)).rejects.toThrow();
     expect(ctx.state.user[0].balance).toBe(1000n); expect(ctx.state.transaction).toEqual([]);
     expect(ctx.state.gameSession).toEqual([]);
   });
@@ -45,10 +46,11 @@ describe('Durable financial settlement', () => {
   });
   it('recovers interrupted solo wagers exactly once without treating refunds as victories', async () => {
     const ctx = database();
-    await new EconomyService(ctx.db).runInTransaction(tx => openWager(tx, player.id, 'mines', 10));
-    expect(await recoverInterruptedFunds(ctx.db)).toEqual({ wagers: 1, escrows: 0 });
+    await new EconomyService(ctx.db).runInTransaction(tx => openWager(tx, player.id, 'mines', 10, 40));
+    expect(await recoverInterruptedFunds(ctx.db)).toEqual({ wagers: 1, escrows: 1 });
     expect(await recoverInterruptedFunds(ctx.db)).toEqual({ wagers: 0, escrows: 0 });
-    expect(ctx.state.user[0].balance).toBe(1000n); expect(ctx.state.transaction.map(t => t.amount)).toEqual([-10n, 10n]);
+    expect(ctx.state.user[0].balance).toBe(1000n); expect(ctx.state.transaction.filter(t => t.userId === player.id).map(t => t.amount)).toEqual([-10n, 10n]);
+    expect(ctx.state.user[1].balance).toBe(1000000000000n);
     expect((await new UserService(ctx.db).getStats(player.id)).totalSessions).toBe(0);
   });
   it('persists the remaining poker stack and refunds it once after restart', async () => {
@@ -58,6 +60,37 @@ describe('Durable financial settlement', () => {
     expect(await recoverInterruptedFunds(ctx.db)).toEqual({ wagers: 0, escrows: 1 });
     expect(await recoverInterruptedFunds(ctx.db)).toEqual({ wagers: 0, escrows: 0 });
     expect(ctx.state.user[0].balance).toBe(970n);
+  });
+  it('rolls back both interruption refunds if the player refund journal fails', async () => {
+    const ctx = database(); const economy = new EconomyService(ctx.db);
+    const id = await economy.runInTransaction(tx => openWager(tx, player.id, 'blackjack', 10, 30));
+    await economy.runInTransaction(tx => increaseWager(tx, id, player.id, 'blackjack', 10));
+    ctx.mocks.transaction.create.mockImplementationOnce(async (args: any) => {
+      const row = { id: 'house-refund', ...args.data }; ctx.state.transaction.push(row); return row;
+    }).mockRejectedValueOnce(Error('player refund journal failed'));
+    await expect(recoverInterruptedFunds(ctx.db)).rejects.toThrow('player refund journal failed');
+    expect(ctx.state.user.map(u => u.balance)).toEqual([980n, 999999999960n]);
+    expect(ctx.state.gameSession[0].resultData.status).toBe('pending');
+    expect(ctx.state.transaction.find(t => t.type === 'game_house_reserve')!.metadata.escrowStatus).toBe('active');
+    expect(await recoverInterruptedFunds(ctx.db)).toEqual({ wagers: 1, escrows: 1 });
+    expect(ctx.state.user.map(u => u.balance)).toEqual([1000n, 1000000000000n]);
+  });
+  it('recovers both player and treasury checkpoints without creating chips', async () => {
+    const ctx = testDatabase({ user: [player, { ...player, id: 'house', balance: 6000n, role: 'ADMIN' }] });
+    const economy = new EconomyService(ctx.db);
+    const ids = await economy.runInTransaction(async tx => [
+      await openEscrow(tx, player.id, 200, 'poker_buyin', 'table', 'Player stake'),
+      await openEscrow(tx, 'house', 600, 'poker_bot_funding', 'table', 'Bot reserve'),
+    ]);
+    await economy.runInTransaction(async tx => {
+      await saveEscrow(tx, ids[0], 160);
+      await saveEscrow(tx, ids[1], 640);
+    });
+    expect(await recoverInterruptedFunds(ctx.db)).toEqual({ wagers: 0, escrows: 2 });
+    expect(ctx.state.user[0].balance).toBe(960n);
+    expect(ctx.state.user[1].balance).toBe(6040n);
+    expect(ctx.state.user.reduce((sum, user) => sum + user.balance, 0n)).toBe(7000n);
+    expect(await recoverInterruptedFunds(ctx.db)).toEqual({ wagers: 0, escrows: 0 });
   });
   it('rolls back closing escrow if the cashout credit fails', async () => {
     const ctx = database(); const economy = new EconomyService(ctx.db);
@@ -110,7 +143,7 @@ describe('Game rules and repeat actions', () => {
     const initial = await service.deal(player.id, 1);
     await expect(service.deal(player.id, 1)).rejects.toThrow('active');
     await service.cancel(player.id, initial.sessionId); await service.cancel(player.id, initial.sessionId);
-    expect(ctx.state.user[0].balance).toBe(999n); expect(ctx.state.transaction).toHaveLength(1);
+    expect(ctx.state.user[0].balance).toBe(999n); expect(ctx.state.transaction.filter(t => t.userId === player.id)).toHaveLength(1);
   });
   it('masks mines, allows withdrawal after exclusion, and pays one cashout', async () => {
     const ctx = database(); const service = new MinesService(ctx.db);
@@ -128,7 +161,7 @@ describe('Game rules and repeat actions', () => {
     expect(service.getCurrentState().players[0]).toMatchObject({ cashedOutAt: 1.5, payout: 15 });
     await service.cashOut(player.id); expect(ctx.state.user[0].balance).toBe(1005n);
     await vi.advanceTimersByTimeAsync(40000); expect(service.getCurrentState().roundId).not.toBe(state.roundId);
-    expect(ctx.state.transaction).toHaveLength(2); service.close();
+    expect(ctx.state.transaction.filter(t => t.userId === player.id)).toHaveLength(2); service.close();
   });
   it('uses grouped wheel indexes matching the UI', async () => {
     const result = await new WheelService().spin(player.id, 10);

@@ -3,6 +3,7 @@ import { EconomyService } from '../../economy/EconomyService.js';
 import { AppError } from '../../auth/AuthService.js';
 import type { Card } from '../blackjack/BlackjackService.js';
 import { GameLock, openWager, settleWager } from '../GameSupport.js';
+import { runFinancialOperation } from '../../economy/FinancialOperation.js';
 import { randomInt } from 'node:crypto';
 
 interface VPSession {
@@ -132,8 +133,10 @@ export class VideoPokerService {
     return `vp-${this.sessionCounter}-${Date.now()}`;
   }
 
-  async deal(userId: string, bet: number): Promise<VPState> {
+  async deal(userId: string, bet: number, key?: string): Promise<VPState> {
     return this.lock.run(userId, async () => {
+    let staged: VPSession | undefined;
+    const result = await runFinancialOperation(this.prisma, userId, 'videopoker_deal', key, { bet }, async tx => {
     if (!Number.isInteger(bet) || bet < 1 || bet > 5) throw new AppError('Mise invalide (1-5)', 400);
     if ([...this.sessions.values()].some(s => s.userId === userId && s.phase === 'deal')) throw new AppError('Une main est deja active; terminer avec draw', 409);
     const config = await this.prisma.gameConfig.findUnique({ where: { gameType: 'videopoker' } });
@@ -157,8 +160,8 @@ export class VideoPokerService {
       sessionId: this.nextSessionId(),
       wagerId: '',
     };
-    await this.economyService.runInTransaction(async tx => { session.wagerId = await openWager(tx, userId, 'videopoker', bet); });
-    this.sessions.set(session.sessionId, session);
+    session.wagerId = await openWager(tx, userId, 'videopoker', bet, bet * (bet === 5 ? 800 : 250));
+    staged = session;
 
     return {
       sessionId: session.sessionId,
@@ -169,6 +172,9 @@ export class VideoPokerService {
       handName: '',
       phase: 'deal',
     };
+    });
+    if (staged) this.sessions.set(staged.sessionId, staged);
+    return result;
     });
   }
 

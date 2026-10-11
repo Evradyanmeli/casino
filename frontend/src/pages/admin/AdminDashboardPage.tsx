@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import Input from '@/components/ui/Input';
+import PageHeader from '@/components/ui/PageHeader';
+import { CasinoChip } from '@/components/games/GameVisuals';
 import { adminApi, capitalUsage } from '@/services/admin';
 import { requestError } from '@/services/feedback';
 import type { DashboardStats, HouseBalance } from '@/types';
@@ -42,7 +44,7 @@ export default function AdminDashboardPage() {
   }, [period]);
 
   const handleRecharge = async () => {
-    if (!rechargeAmount || rechargeAmount <= 0) return;
+    if (saving || !Number.isSafeInteger(rechargeAmount) || rechargeAmount <= 0) return;
     setSaving(true);
     setRechargeError('');
     try {
@@ -56,90 +58,77 @@ export default function AdminDashboardPage() {
     finally { setSaving(false); }
   };
 
-  if (loading) {
-    return <p className="text-gray-400">{t('common.loading')}</p>;
-  }
+  const header = <PageHeader title={t('admin.dashboard')} eyebrow="Administration">
+    <div className="casino-tabs flex flex-wrap gap-1" role="group" aria-label={t('admin.dashboard')}>
+      {(['24h', '7d', '30d'] as Period[]).map(p => <button key={p} onClick={() => setPeriod(p)} aria-pressed={period === p}
+        className={`min-h-11 rounded-lg px-4 text-sm font-semibold transition-colors ${period === p ? 'bg-[#c7a35e]/15 text-[#e6cc94]' : 'text-gray-400 hover:text-white'}`}>{p}</button>)}
+    </div>
+  </PageHeader>;
 
-  if (!stats) {
-    return <p role="alert" className="text-error">{error || t('common.error')}</p>;
-  }
+  if (loading) return <div className="space-y-6">{header}<p role="status" className="casino-empty text-gray-400">{t('common.loading')}</p></div>;
+  if (!stats) return <div className="space-y-6">{header}<p role="alert" className="casino-panel p-5 text-error break-words">{error || t('common.error')}</p></div>;
 
   const kpiCards = [
-    { label: t('admin.totalUsers'), value: stats.totalUsers.toLocaleString(), color: 'from-blue-500 to-blue-600', tooltip: '' },
-    { label: t('admin.activePeriod', { period }), value: (stats.activeUsers ?? stats.activeUsers24h).toLocaleString(), color: 'from-green-500 to-green-600', tooltip: '' },
-    { label: t('admin.gamesPlayed'), value: stats.totalGamesPlayed.toLocaleString(), color: 'from-cyan-500 to-cyan-600', tooltip: '' },
-    { label: t('admin.revenue'), value: `${stats.revenue >= 0 ? '+' : ''}${stats.revenue.toLocaleString()} GC`, color: 'from-gold to-amber-500', tooltip: t('admin.revenueHelp'), net: true },
-    { label: t('admin.houseBalance'), value: `${stats.houseBalance.toLocaleString()} GC`, color: 'from-teal-500 to-teal-600', tooltip: t('admin.houseHelp') },
-    { label: t('admin.playersBalance'), value: `${stats.totalUserBalance.toLocaleString()} GC`, color: 'from-purple-500 to-purple-600', tooltip: t('admin.playersBalanceHelp') },
+    { label: t('admin.totalUsers'), value: stats.totalUsers.toLocaleString(), tooltip: '' },
+    { label: t('admin.activePeriod', { period, defaultValue: 'Active users ({{period}})' }), value: (stats.activeUsers ?? stats.activeUsers24h).toLocaleString(), tooltip: '' },
+    { label: t('admin.gamesPlayed'), value: stats.totalGamesPlayed.toLocaleString(), tooltip: '' },
+    { label: t('admin.revenue'), value: `${stats.revenue >= 0 ? '+' : ''}${stats.revenue.toLocaleString()} GC`, tooltip: t('admin.revenueHelp', { defaultValue: 'Net gaming revenue for the selected period.' }), net: true },
+    { label: t('admin.houseBalance'), value: `${stats.houseBalance.toLocaleString()} GC`, tooltip: t('admin.houseHelp', { defaultValue: 'Virtual house funds. Treasury reservations are detailed below.' }) },
+    { label: t('admin.playersBalance', { defaultValue: 'Player balances' }), value: `${stats.totalUserBalance.toLocaleString()} GC`, tooltip: t('admin.playersBalanceHelp', { defaultValue: 'Combined virtual balances held by players.' }) },
   ];
 
-  const capitalUsed = house ? house.capital - house.balance : 0;
+  const capitalUsed = house ? house.capital - (house.totalBalance ?? house.balance) : 0;
   const capitalPct = house ? capitalUsage(house).toFixed(1) : '0';
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-display text-gold">{t('admin.dashboard')}</h1>
-        <div className="flex gap-2">
-          {(['24h', '7d', '30d'] as Period[]).map(p => (
-            <button
-              key={p}
-              onClick={() => setPeriod(p)}
-              className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors ${
-                period === p ? 'bg-gold text-[#0D0D1A]' : 'bg-[#1A1A2E] text-gray-400 hover:text-white'
-              }`}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
-      </div>
+      {header}
 
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="grid min-w-0 grid-cols-1 min-[390px]:grid-cols-2 xl:grid-cols-3 gap-4">
         {kpiCards.map(card => (
-          <div key={card.label} className="card relative group">
-            <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${card.color} flex items-center justify-center mb-3`}>
-              <span className="text-white font-bold text-lg">{card.label.charAt(0)}</span>
-            </div>
-            <p className={`text-xl sm:text-2xl font-bold break-words ${card.net ? stats.revenue < 0 ? 'text-error' : 'text-success' : 'text-white'}`}>{card.value}</p>
-            <p className="text-xs text-gray-400 mt-1">{card.label}</p>
-            {card.tooltip && (
-              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-1.5 rounded bg-gray-900 text-xs text-gray-200 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg border border-gray-700">
-                {card.tooltip}
-              </div>
-            )}
+          <div key={card.label} className="casino-kpi casino-panel min-w-0 p-5">
+            <p className="text-sm text-[#b8c5be] mb-3">{card.label}</p>
+            <p className={`text-xl sm:text-2xl font-semibold tabular-nums break-words ${card.net ? stats.revenue < 0 ? 'text-error' : 'text-success' : 'text-[#f1e7d1]'}`}>{card.value}</p>
+            {card.tooltip && <p className="mt-3 text-xs leading-relaxed text-gray-400">{card.tooltip}</p>}
           </div>
         ))}
       </div>
 
       {house && (
-        <div className="card">
-          <h2 className="text-lg font-display text-white mb-3">{t('admin.initialCapital')}</h2>
-          <p className="text-2xl font-bold text-white">{house.capital.toLocaleString()} GC</p>
-          <p className="text-xs text-gray-400 mt-1">{t('admin.houseHelp')}</p>
+        <div className="casino-panel p-5 sm:p-6">
+          <div className="flex items-center justify-between gap-3"><h2 className="casino-section text-xl" style={{ fontFamily: 'Georgia, serif' }}>{t('admin.initialCapital')}</h2><CasinoChip value="GC" color="#236750" className="opacity-60" /></div>
+          <p className="mt-3 text-2xl font-semibold tabular-nums break-words text-white">{house.capital.toLocaleString()} GC</p>
+          <p className="text-xs text-gray-400 mt-1">{t('admin.houseHelp', { defaultValue: 'Virtual house funds. Treasury reservations are detailed below.' })}</p>
         </div>
       )}
 
+      {house && <div className="casino-panel p-5 sm:p-6 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 [&_p]:break-words [&_p]:tabular-nums">
+        <div><p className="text-sm text-gray-400">{t('admin.availableTreasury')}</p><p className="text-xl text-white">{house.balance.toLocaleString()} GC</p></div>
+        <div><p className="text-sm text-gray-400">{t('admin.reservedBotCapital')}</p><p className="text-xl text-white">{(house.reservedBots ?? 0).toLocaleString()} GC</p></div>
+        <div><p className="text-sm text-gray-400">{t('admin.reservedGameCapital')}</p><p className="text-xl text-white">{(house.reservedGames ?? 0).toLocaleString()} GC</p></div>
+        <div><p className="text-sm text-gray-400">{t('admin.totalTreasury')}</p><p className="text-xl text-white">{(house.totalBalance ?? house.balance).toLocaleString()} GC</p></div>
+      </div>}
+
       {house && (
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-display text-white">{t('admin.houseAccount')}</h2>
-            <Button variant="secondary" onClick={() => setRechargeModal(true)}>
+        <div className="casino-panel p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <h2 className="casino-section text-xl" style={{ fontFamily: 'Georgia, serif' }}>{t('admin.houseAccount')}</h2>
+            <Button variant="outline" onClick={() => setRechargeModal(true)}>
               {t('admin.recharge')}
             </Button>
           </div>
           <div>
             <p className="text-sm text-gray-400">{t('admin.capitalUsed')}</p>
-            <p className="text-2xl font-bold text-cyan">{capitalUsed.toLocaleString()} GC</p>
+            <p className="text-2xl font-semibold tabular-nums break-words text-[#e6cc94]">{capitalUsed.toLocaleString()} GC</p>
           </div>
           <div className="mt-4">
             <div className="flex justify-between text-xs text-gray-400 mb-1">
               <span>{t('admin.capitalUsage')}</span>
               <span>{capitalPct}%</span>
             </div>
-            <div className="w-full bg-[#232340] rounded-full h-2">
+            <div className="w-full bg-white/5 rounded-full h-2">
               <div
-                className="bg-gradient-to-r from-gold to-secondary h-2 rounded-full transition-all duration-500"
+                className="bg-[#86b99a] h-2 rounded-full transition-all duration-500"
                 style={{ width: `${Math.max(0, Math.min(100, parseFloat(capitalPct)))}%` }}
               />
             </div>
@@ -147,7 +136,7 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {houseError && <p role="alert" className="text-error">{houseError}</p>}
+      {houseError && <p role="alert" className="casino-panel p-5 break-words text-error">{houseError}</p>}
       <Modal
         isOpen={rechargeModal}
         onClose={() => setRechargeModal(false)}
@@ -160,6 +149,8 @@ export default function AdminDashboardPage() {
             id="recharge-amount"
             label={t('admin.amount')}
             type="number"
+            min="1"
+            step="1"
             value={String(rechargeAmount)}
             onChange={e => setRechargeAmount(Number(e.target.value))}
           />
@@ -168,7 +159,8 @@ export default function AdminDashboardPage() {
               <button
                 key={amt}
                 onClick={() => setRechargeAmount(amt)}
-                className={`px-3 py-1.5 rounded text-xs font-semibold border transition-colors ${
+                aria-pressed={rechargeAmount === amt}
+                className={`min-h-11 px-3 py-2 rounded text-xs font-semibold border transition-colors ${
                   rechargeAmount === amt ? 'border-gold text-gold bg-gold/10' : 'border-gray-700 text-gray-400 hover:border-gold'
                 }`}
               >

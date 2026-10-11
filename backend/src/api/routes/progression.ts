@@ -34,7 +34,7 @@ export default async function progressionRoutes(app: FastifyInstance) {
 
   app.post<{ Params: { id: string } }>('/progression/tasks/:id/claim', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     try {
-      const result = await taskService.claimTask(request.user.sub, request.params.id);
+      const result = await taskService.claimTask(request.user.sub, request.params.id, request.headers['idempotency-key'] as string | undefined);
       return result;
     } catch (err) {
       if (err instanceof AppError) return reply.status(err.statusCode).send({ error: err.message });
@@ -76,9 +76,8 @@ export default async function progressionRoutes(app: FastifyInstance) {
   app.post('/progression/race/claim', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = z.object({ raceId: z.string().min(1).optional() }).parse(request.body ?? {});
-      const race = body.raceId ? { id: body.raceId } : await raceService.getClaimableRace(request.user.sub);
-      if (!race) return reply.status(400).send({ error: 'No race found' });
-      const result = await raceService.claimPrize(request.user.sub, race.id);
+      if (!body.raceId) await raceService.getCurrentRace();
+      const result = await raceService.claimPrize(request.user.sub, body.raceId, request.headers['idempotency-key'] as string | undefined);
       return { prize: result };
     } catch (err) {
       if (err instanceof z.ZodError) return reply.status(400).send({ error: 'Validation error', details: err.errors });

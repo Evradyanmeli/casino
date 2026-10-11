@@ -3,6 +3,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { AppError } from '../../auth/AuthService.js';
 import { EconomyService } from '../../economy/EconomyService.js';
 import { GameLock, houseEdge, openWager, settleWager } from '../GameSupport.js';
+import { runFinancialOperation } from '../../economy/FinancialOperation.js';
 
 interface MinesCell { revealed: boolean; isMine: boolean; index: number; }
 export interface MinesState {
@@ -43,20 +44,23 @@ export class MinesService {
     return s ? this.publicState(s.state) : null;
   }
 
-  async startGame(userId: string, bet: number, mineCount: number): Promise<MinesState> {
+  async startGame(userId: string, bet: number, mineCount: number, key?: string): Promise<MinesState> {
     return this.lock.run(userId, async () => {
+      let staged: Session | undefined;
+      const result = await runFinancialOperation(this.prisma, userId, 'mines_start', key, { bet, mineCount }, async tx => {
       if (!Number.isInteger(mineCount) || mineCount < 1 || mineCount > 24) throw new AppError('Mine count must be between 1 and 24', 400);
       if ([...this.sessions.values()].some(s => s.userId === userId && s.state.state === 'playing')) throw new AppError('A Mines session is already active', 409);
       const session: Session = { userId, wagerId: '', edge: 0.02, state: {
         sessionId: randomUUID(), grid: generateGrid(mineCount), mineCount, revealedCount: 0,
         bet, multiplier: 1, state: 'playing', payout: 0,
       } };
-      await new EconomyService(this.prisma).runInTransaction(async tx => {
-        session.edge = await houseEdge(tx, 'mines', 2);
-        session.wagerId = await openWager(tx, userId, 'mines', bet);
-      });
-      this.sessions.set(session.state.sessionId, session);
+      session.edge = await houseEdge(tx, 'mines', 2);
+      session.wagerId = await openWager(tx, userId, 'mines', bet, Math.ceil(bet * calcMultiplier(mineCount, 25 - mineCount, session.edge)));
+      staged = session;
       return this.publicState(session.state);
+      });
+      if (staged) this.sessions.set(staged.state.sessionId, staged);
+      return result;
     });
   }
 

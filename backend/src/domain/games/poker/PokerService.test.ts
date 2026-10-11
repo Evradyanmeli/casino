@@ -176,7 +176,8 @@ describe('Poker settlement and escrow', () => {
   it('starts once under concurrent clicks and resumes without another debit', async () => {
     const [a, b] = await Promise.all([service.startBotGame('a', 200), service.startBotGame('a', 200)]);
     expect(a.table.id).toBe(b.table.id);
-    expect(wallet.journal).toHaveLength(1);
+    expect(wallet.journal.filter(t => t.userId === 'a')).toHaveLength(1);
+    expect(wallet.journal.filter(t => t.type === 'poker_bot_funding')).toHaveLength(1);
     expect((await service.resumeSession('a')).table.id).toBe(a.table.id);
     expect(wallet.users.get('a')!.balance).toBe(800n);
   });
@@ -207,7 +208,10 @@ describe('Poker settlement and escrow', () => {
     await service.handleAction('a', session.table.id, 'raise', 40);
     await Promise.all([service.leaveTable('a', session.table.id), service.standUp('a', session.table.id)]);
     expect(wallet.users.get('a')!.balance).toBe(960n);
-    expect(wallet.journal.map(t => [t.type, t.amount])).toEqual([['poker_buyin', -200n], ['poker_cashout', 160n]]);
+    expect(wallet.journal.map(t => [t.type, t.amount])).toEqual([
+      ['poker_buyin', -200n], ['poker_bot_funding', -600n], ['poker_cashout', 160n], ['poker_bot_return', 640n],
+    ]);
+    expect(wallet.users.get('house')!.balance).toBe(6040n);
     expect(wallet.journal[0].metadata.escrowStatus).toBe('closed');
     expect(wallet.sessions).toHaveLength(1);
     expect(wallet.sessions[0]).toMatchObject({ betAmount: 40n, winAmount: 0n });
@@ -217,7 +221,7 @@ describe('Poker settlement and escrow', () => {
     expect((service as any).roundTimers.size).toBe(0);
     await vi.advanceTimersByTimeAsync(60000);
     expect((service as any).tables.size).toBe(5);
-    expect(wallet.journal).toHaveLength(2);
+    expect(wallet.journal).toHaveLength(4);
   });
 
   it('runs out an all-in rather than folding it or refunding it for free', async () => {
@@ -230,7 +234,8 @@ describe('Poker settlement and escrow', () => {
     await service.leaveTable('a', table.id);
     expect(wallet.users.get('a')!.balance).toBe(1600n);
     expect(wallet.sessions[0]).toMatchObject({ betAmount: 200n, winAmount: 800n });
-    expect(wallet.journal.map(t => t.amount)).toEqual([-200n, 800n]);
+    expect(wallet.journal.filter(t => t.userId === 'a').map(t => t.amount)).toEqual([-200n, 800n]);
+    expect(wallet.users.get('house')!.balance).toBe(5400n);
     expect(await service.getTableState(table.id)).toBeNull();
   });
 
@@ -239,7 +244,8 @@ describe('Poker settlement and escrow', () => {
     vi.mocked(botDecide).mockReturnValueOnce({ action: 'raise', amount: 20.5 });
     await service.leaveTable('a', session.table.id);
     expect(wallet.users.get('a')!.balance).toBe(1000n);
-    expect(wallet.journal.map(t => t.amount)).toEqual([-200n, 200n]);
+    expect(wallet.journal.map(t => t.amount)).toEqual([-200n, -600n, 200n, 600n]);
+    expect(wallet.users.get('house')!.balance).toBe(6000n);
     expect(await service.resumeSession('a')).toBeNull();
     expect((service as any).botTimers.size).toBe(0);
   });
@@ -269,7 +275,8 @@ describe('Poker settlement and escrow', () => {
     expect(resumed.players.find((p: PokerPlayer) => p.userId === 'a').folded).toBe(false);
     await vi.advanceTimersByTimeAsync(2000);
     expect((await service.resumeSession('a')).table.id).toBe(session.table.id);
-    expect(wallet.journal).toHaveLength(1);
+    expect(wallet.journal.filter(t => t.userId === 'a')).toHaveLength(1);
+    expect(wallet.users.get('house')!.balance).toBe(5400n);
   });
 
   it('expires disconnected bot sessions and starts the next one with new instances', async () => {
@@ -281,7 +288,7 @@ describe('Poker settlement and escrow', () => {
     expect((service as any).disconnectTimers.size).toBe(0);
     const next = await service.startBotGame('a', 200);
     expect(next.table.id).not.toBe(session.table.id);
-    expect(next.players.filter((p: PokerPlayer) => p.isBot).every((p: PokerPlayer) => p.chips === 5000 || p.chips === 4995 || p.chips === 4990)).toBe(true);
+    expect(next.players.filter((p: PokerPlayer) => p.isBot).every((p: PokerPlayer) => [200, 195, 190].includes(p.chips))).toBe(true);
     expect(next.players.some((p: PokerPlayer) => session.players.some((old: PokerPlayer) => old.isBot && old.userId === p.userId))).toBe(false);
   });
 
@@ -306,7 +313,7 @@ describe('Poker settlement and escrow', () => {
     await service.leaveTable('a', publicTable.id);
     expect((await service.resumeSession('a')).table.id).toBe(a.table.id);
     expect((await service.resumeSession('b')).table.id).toBe(b.table.id);
-    expect(wallet.journal).toHaveLength(2);
+    expect(wallet.journal).toHaveLength(4);
   });
 
   it('a notification failure never reports an already-paid start as a rejected buy-in', async () => {
@@ -314,6 +321,92 @@ describe('Poker settlement and escrow', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const session = await service.startBotGame('a', 200);
     expect(session.isAtTable).toBe(true);
-    expect(wallet.journal).toHaveLength(1);
+    expect(wallet.journal.filter(t => t.userId === 'a')).toHaveLength(1);
+    expect(wallet.users.get('house')!.balance).toBe(5400n);
+  });
+
+  it('reserves company funds without creating user accounts or minting chips', async () => {
+    const count = wallet.users.size;
+    const before = wallet.users.get('a')!.balance + wallet.users.get('house')!.balance;
+    const state = await service.startBotGame('a', 200);
+    const table = (service as any).tables.get(state.table.id) as PokerTable;
+    expect(wallet.users.size).toBe(count);
+    expect(wallet.users.get('house')!.balance).toBe(5400n);
+    expect(table.fundedTotal).toBe(800);
+    const held = wallet.journal.filter(t => t.metadata?.escrowStatus === 'active')
+      .reduce((sum, t) => sum + BigInt(t.metadata.escrowAmount), 0n);
+    expect(wallet.users.get('a')!.balance + wallet.users.get('house')!.balance + held).toBe(before);
+    await service.leaveTable('a', state.table.id);
+    expect(wallet.users.get('a')!.balance + wallet.users.get('house')!.balance).toBe(before);
+    expect(wallet.journal.every(t => !t.metadata || t.metadata.escrowStatus === 'closed')).toBe(true);
+    expect(wallet.users.size).toBe(count);
+  });
+
+  it('declines an unfunded session atomically without charging the human', async () => {
+    wallet.users.get('house')!.balance = 599n;
+    await expect(service.startBotGame('a', 200)).rejects.toThrow('caisse');
+    expect(wallet.users.get('a')!.balance).toBe(1000n);
+    expect(wallet.users.get('house')!.balance).toBe(599n);
+    expect(wallet.journal).toHaveLength(0);
+    expect((service as any).tables.size).toBe(5);
+    expect(await service.resumeSession('a')).toBeNull();
+  });
+
+  it('concurrent sessions cannot overdraw the same treasury', async () => {
+    wallet.users.get('house')!.balance = 1000n;
+    const results = await Promise.allSettled([service.startBotGame('a', 200), service.startBotGame('b', 200)]);
+    expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+    expect(wallet.users.get('house')!.balance).toBe(400n);
+    expect(wallet.journal.filter(t => t.type === 'poker_bot_funding')).toHaveLength(1);
+    expect(wallet.users.get('a')!.balance + wallet.users.get('b')!.balance).toBe(1800n);
+  });
+
+  it('rolls back human payment and hand history when treasury return fails', async () => {
+    const state = await service.startBotGame('a', 200);
+    await service.handleAction('a', state.table.id, 'raise', 40);
+    const create = wallet.tx.transaction.create.getMockImplementation()!;
+    wallet.tx.transaction.create.mockImplementation(async (args: any) => {
+      if (args.data.type === 'poker_bot_return') throw Error('treasury journal failed');
+      return create(args);
+    });
+    await expect(service.leaveTable('a', state.table.id)).rejects.toThrow('treasury journal failed');
+    expect(wallet.users.get('a')!.balance).toBe(800n);
+    expect(wallet.users.get('house')!.balance).toBe(5400n);
+    expect(wallet.sessions).toHaveLength(0);
+    expect(wallet.journal.every(t => t.metadata?.escrowStatus === 'active')).toBe(true);
+    wallet.tx.transaction.create.mockImplementation(create);
+    await service.leaveTable('a', state.table.id);
+    expect(wallet.users.get('a')!.balance).toBe(960n);
+    expect(wallet.users.get('house')!.balance).toBe(6040n);
+  });
+
+  it('does not replenish busted bots for free on the next hand', async () => {
+    const state = await service.startBotGame('a', 200);
+    const table = (service as any).tables.get(state.table.id) as PokerTable;
+    table.phase = 'showdown';
+    table.communityCards = [card('2'), card('5', 'diamonds'), card('7', 'clubs'), card('9', 'spades'), card('10')];
+    table.players.forEach((p, i) => {
+      const rank = (['A', 'K', 'Q', 'J'] as const)[i];
+      p.holeCards = [card(rank), card(rank, 'diamonds')]; p.totalBet = 200; p.currentBet = 200; p.chips = 0; p.isAllIn = true;
+    });
+    table.pot = 800;
+    await internals().showdown(table);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(table.players.filter(p => p.isBot).every(p => p.chips === 0)).toBe(true);
+    expect(table.handInProgress).toBe(false);
+    expect(wallet.journal.filter(t => t.type === 'poker_bot_funding')).toHaveLength(1);
+    expect(wallet.users.get('house')!.balance).toBe(5400n);
+    await service.leaveTable('a', table.id);
+    expect(wallet.users.get('a')!.balance).toBe(1600n);
+    expect(wallet.users.get('house')!.balance).toBe(5400n);
+  });
+
+  it('refuses to pay a corrupted table rather than manufacturing a missing chip', async () => {
+    const state = await service.startBotGame('a', 200);
+    (service as any).tables.get(state.table.id).players[1].chips++;
+    await expect(service.leaveTable('a', state.table.id)).rejects.toThrow('Conservation');
+    expect(wallet.users.get('a')!.balance).toBe(800n);
+    expect(wallet.users.get('house')!.balance).toBe(5400n);
+    expect(wallet.sessions).toHaveLength(0);
   });
 });

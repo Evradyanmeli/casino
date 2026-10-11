@@ -135,7 +135,7 @@ export function checkBetWon(bet: RouletteBet, result: number): boolean {
 }
 
 export class RouletteService {
-  constructor(private prisma: PrismaClient) {}
+  constructor(private prisma: PrismaClient | import('@prisma/client').Prisma.TransactionClient) {}
 
   async spin(userId: string, bets: RouletteBet[]): Promise<RouletteResult> {
     if (!Array.isArray(bets) || bets.length === 0) {
@@ -176,7 +176,7 @@ export class RouletteService {
       bets: betResults,
       totalWin,
     };
-    }, result => result.totalWin);
+    }, result => result.totalWin, totalBet * 36);
   }
 }
 

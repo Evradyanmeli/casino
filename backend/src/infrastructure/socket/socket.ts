@@ -27,7 +27,8 @@ export function createSocketAuth(app: FastifyInstance, gameType?: string) {
     try {
       const token = socket.handshake.auth?.token;
       if (typeof token !== 'string' || !token) throw new Error('Token requis');
-      const decoded = app.jwt.verify<{ sub: string }>(token);
+      const decoded = app.jwt.verify<{ sub: string; type?: string; role?: string }>(token);
+      if (decoded.type !== 'access' && !(decoded.type === undefined && ['USER', 'ADMIN'].includes(decoded.role ?? ''))) throw new Error('Access token required');
       if (typeof decoded.sub !== 'string' || !decoded.sub) throw new Error('Identité invalide');
       const user = await app.prisma.user.findUnique({ where: { id: decoded.sub }, select: { status: true, pseudo: true } });
       if (!user || user.status !== 'ACTIVE') throw new Error('Compte indisponible');

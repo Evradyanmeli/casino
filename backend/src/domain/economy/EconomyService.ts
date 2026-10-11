@@ -5,6 +5,18 @@ import { ResponsibleGamingService } from '../rg/ResponsibleGamingService.js';
 export type EconomyDb = PrismaClient | Prisma.TransactionClient;
 export const GAME_BET_TYPES = ['bet', 'game_bet', 'pokerbuyin', 'poker_buyin'];
 export const GAME_WIN_TYPES = ['win', 'game_win'];
+export function transactionFilter(userId: string, filter?: string): Prisma.TransactionWhereInput {
+  const where: Prisma.TransactionWhereInput = { userId };
+  if (filter === 'win' || filter === 'game_win') {
+    where.type = { in: GAME_WIN_TYPES };
+    where.AND = [
+      { OR: [{ reference: null }, { reference: { notIn: ['poker_cashout', 'poker_cash_out'] } }] },
+      { OR: [{ description: null }, { NOT: { description: { contains: 'Poker cash-out', mode: 'insensitive' } } }] },
+    ];
+  } else if (filter === 'bet' || filter === 'game_bet') where.type = { in: GAME_BET_TYPES };
+  else if (filter && filter !== 'all') where.type = filter;
+  return where;
+}
 const MAX_BALANCE = BigInt(Number.MAX_SAFE_INTEGER);
 
 export function assertPositiveAmount(amount: bigint): void {
@@ -99,17 +111,7 @@ export class EconomyService implements IEconomyService {
   }
 
   async getTransactions(userId: string, filter?: string, limit?: number, offset?: number): Promise<any[]> {
-    const where: Prisma.TransactionWhereInput = { userId };
-    if (filter === 'win' || filter === 'game_win') {
-      where.type = { in: GAME_WIN_TYPES };
-      // Old Poker withdrawals were incorrectly persisted as wins.
-      where.AND = [
-        { OR: [{ reference: null }, { reference: { notIn: ['poker_cashout', 'poker_cash_out'] } }] },
-        { OR: [{ description: null }, { NOT: { description: { contains: 'Poker cash-out', mode: 'insensitive' } } }] },
-      ];
-    } else if (filter === 'bet' || filter === 'game_bet') {
-      where.type = { in: GAME_BET_TYPES };
-    } else if (filter && filter !== 'all') where.type = filter;
+    const where = transactionFilter(userId, filter);
 
     return this.prisma.transaction.findMany({
       where,

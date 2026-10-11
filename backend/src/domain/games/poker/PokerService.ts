@@ -25,6 +25,9 @@ export interface PokerPlayer {
 
 export interface PokerTable {
   ownerId?: string;
+  houseUserId?: string;
+  houseEscrowId?: string;
+  fundedTotal?: number;
   id: string;
   name: string;
   maxPlayers: number;
@@ -192,6 +195,7 @@ export class PokerService {
         if (player.escrowId) await saveEscrow(tx, player.escrowId, player.chips + amount);
       });
       player.chips += amount;
+      if (table.fundedTotal !== undefined) table.fundedTotal += amount;
       this.checkGameState(table);
       return this.getPlayerGameState(tableId, userId);
     });
@@ -415,14 +419,32 @@ export class PokerService {
 
     const economy = await this.getEconomy();
     let escrowId = '';
+    let houseUserId: string | undefined;
+    let houseEscrowId: string | undefined;
+    const botFunding = table.ownerId ? (Math.min(4, table.maxPlayers) - 1) * buyIn : 0;
     const user = await economy.runInTransaction(async (tx: import('@prisma/client').Prisma.TransactionClient) => {
       const wallet = new EconomyService(tx);
+      if (table.ownerId) {
+        const house = await tx.user.findFirst({ where: { role: 'ADMIN', email: 'admin@casino.com', status: 'ACTIVE' }, select: { id: true } });
+        if (!house || house.id === userId) throw new Error('Caisse distincte du joueur requise pour financer les bots');
+        houseUserId = house.id;
+        // Consistent lock order: treasury first, then the human wallet.
+        await tx.user.updateMany({ where: { id: house.id }, data: { balance: { increment: 0n } } });
+        const available = await wallet.getBalance(house.id);
+        if (available < BigInt(botFunding)) throw new Error('La caisse ne peut pas financer les bots pour cette session');
+      }
       await wallet.assertCanPlay(userId, 'poker');
       const account = await tx.user.findUnique({ where: { id: userId }, select: { pseudo: true } });
       if (!account) throw new Error('Joueur introuvable');
       escrowId = await openEscrow(tx, userId, buyIn, 'poker_buyin', tableId, 'Poker buy-in');
+      if (houseUserId) houseEscrowId = await openEscrow(tx, houseUserId, botFunding, 'poker_bot_funding', tableId, 'Capital des bots reserve par la caisse');
       return account;
     });
+    if (table.ownerId) {
+      table.houseUserId = houseUserId;
+      table.houseEscrowId = houseEscrowId;
+      table.fundedTotal = buyIn + botFunding;
+    }
 
     const player: PokerPlayer = {
       userId,
@@ -456,7 +478,8 @@ export class PokerService {
   }
 
   private async fillWithBots(table: PokerTable): Promise<void> {
-    const humanCount = table.players.filter(p => !p.isBot).length;
+    if (!table.houseEscrowId || !table.ownerId) throw new Error('Bots non finances par la caisse');
+    const botStack = table.players.find(p => p.userId === table.ownerId)!.chips;
     const totalNeeded = Math.min(4, table.maxPlayers);
     const botCount = totalNeeded - table.players.length;
 
@@ -480,7 +503,7 @@ export class PokerService {
         userId: `bot-${table.id}-${shuffledSeats[i]}`,
         username,
         seat: shuffledSeats[i],
-        chips: 5000,
+        chips: botStack,
         holeCards: [],
         currentBet: 0,
         totalBet: 0,
@@ -512,8 +535,14 @@ export class PokerService {
     if (player.escrowId || player.chips > 0) {
       const economy = wallet ?? await this.getEconomy();
       await economy.runInTransaction(async (tx: import('@prisma/client').Prisma.TransactionClient) => {
+        if (table.ownerId) this.assertTableFunding(table);
         if (player.escrowId) await saveEscrow(tx, player.escrowId, player.chips, true);
         if (player.chips > 0) await new EconomyService(tx).addBalance(userId, BigInt(player.chips), 'poker_cashout', tableId, 'Poker cash-out');
+        if (table.houseUserId && table.houseEscrowId) {
+          const returned = table.players.filter(p => p.isBot).reduce((sum, bot) => sum + bot.chips, 0);
+          await saveEscrow(tx, table.houseEscrowId, returned, true);
+          if (returned > 0) await new EconomyService(tx).addBalance(table.houseUserId, BigInt(returned), 'poker_bot_return', tableId, 'Capital final des bots reverse a la caisse');
+        }
       });
     }
 
@@ -555,6 +584,8 @@ export class PokerService {
       const economy = await this.getEconomy();
       await economy.runInTransaction(async tx => {
         const wallet = new EconomyService(tx);
+        if (!staged.houseUserId || !staged.houseEscrowId) throw new Error('Reserve des bots introuvable');
+        await tx.user.updateMany({ where: { id: staged.houseUserId }, data: { balance: { increment: 0n } } });
         this.tables.set(id, staged);
         const player = staged.players.find(p => p.userId === userId)!;
         if (staged.handInProgress && !player.isAllIn && !player.folded) {
@@ -1103,6 +1134,7 @@ export class PokerService {
 
   private async saveHandResult(table: PokerTable, wallet?: EconomyService): Promise<void> {
       if (!table.lastHandResults) return;
+      if (table.ownerId) this.assertTableFunding(table);
       const result = table.lastHandResults;
       const humanPlayers = table.players.filter(p => !p.isBot && p.holeCards.length === 2);
       const economy = wallet ?? await this.getEconomy();
@@ -1133,7 +1165,19 @@ export class PokerService {
           },
         });
       }
+      if (table.houseEscrowId) {
+        const remaining = table.players.filter(p => p.isBot).reduce((sum, bot) => sum + bot.chips +
+          (result.winningAmounts.find(award => award.userId === bot.userId)?.amount ?? 0), 0);
+        await saveEscrow(tx, table.houseEscrowId, remaining);
+      }
       });
+  }
+
+  private assertTableFunding(table: PokerTable): void {
+    const actual = table.players.reduce((sum, player) => sum + player.chips, table.pot);
+    if (!Number.isSafeInteger(actual) || table.fundedTotal === undefined || actual !== table.fundedTotal) {
+      throw new Error('Conservation des jetons de la table non respectee');
+    }
   }
 
   private endHand(table: PokerTable): void {
@@ -1157,7 +1201,6 @@ export class PokerService {
         if (!table.handInProgress && table.handId === handId) {
           for (const player of [...table.players].filter(p => p.leaveAfterHand)) await this.standUpLocked(player.userId, table.id);
           table.phase = 'waiting';
-          for (const bot of table.players.filter(p => p.isBot && p.chips === 0)) bot.chips = 5000;
           this.checkGameState(table);
         }
       }).catch(err => console.error('Poker next hand failed', err));
@@ -1304,6 +1347,8 @@ export class PokerService {
         id: table.id,
         name: table.name,
         mode: table.ownerId ? 'bots' : 'shared',
+        notice: table.ownerId && !table.handInProgress && !table.players.some(p => p.isBot && p.chips > 0)
+          ? 'Les bots ont epuise leur budget. Quittez la table pour encaisser vos jetons.' : null,
         maxPlayers: table.maxPlayers,
         smallBlind: table.smallBlind,
         bigBlind: table.bigBlind,

@@ -27,7 +27,7 @@ model User {
   birthDate     DateTime?
   role          UserRole   @default(USER)
   status        UserStatus @default(ACTIVE)
-  balance       BigInt     @default(5000)
+  balance       BigInt     @default(0)
   xp            Int        @default(0)
   level         Int        @default(1)
   avatar        String?
@@ -46,6 +46,7 @@ model User {
   raceEntries       RaceEntry[]
   chatMessages      ChatMessage[]
   auditLogs         AuditLog[]
+  financialOperations FinancialOperation[]
 
   @@index([email])
   @@index([pseudo])
@@ -80,6 +81,21 @@ model Transaction {
 
   @@index([userId])
   @@index([userId, createdAt])
+}
+
+model FinancialOperation {
+  id          String   @id @default(uuid())
+  actorId     String
+  scope       String
+  key         String
+  fingerprint String
+  result      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  actor       User     @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@unique([actorId, scope, key])
+  @@index([createdAt])
 }
 
 model GameSession {

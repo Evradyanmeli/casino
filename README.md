@@ -23,6 +23,20 @@ Renseigner `DATABASE_URL` et generer deux secrets independants avec
 de demarrer si ces secrets manquent ou font moins de 32 caracteres.
 `CORS_ORIGIN` doit correspondre exactement a l'origine du frontend.
 
+Pour mettre a niveau un `.env` existant sans modifier l'URL PostgreSQL ni les
+autres reglages, depuis la racine du projet :
+
+```sh
+node backend/scripts/configure-secrets.mjs
+docker compose config --quiet
+```
+
+Le script genere seulement les secrets manquants, trop courts ou identiques,
+sans afficher leurs valeurs. Remplacer `JWT_SECRET` invalide les sessions au
+prochain redemarrage du backend : les utilisateurs devront se reconnecter.
+Sur une installation Docker, ces secrets doivent etre dans le `.env` racine,
+pas seulement dans `backend/.env`.
+
 PostgreSQL n'est pas inclus dans Compose : son adresse doit etre accessible
 depuis les conteneurs. `localhost` dans le conteneur backend ne designe pas
 la machine hote. Les identifiants doivent etre encodes pour une URL si necessaire.
@@ -41,10 +55,11 @@ npm run db:push
 npm run dev
 ```
 
-`db:push` prepare le schema sur une base de developpement neuve. Aucune migration
-Prisma n'est encore versionnee : ne pas utiliser cette commande comme procedure
-de migration en production et ne pas ajouter `--accept-data-loss` sur une base
-contenant des donnees a conserver.
+`db:push` prepare le schema sur une base de developpement neuve. La migration
+financiere versionnee est un delta, pas une baseline complete : `migrate deploy`
+ne convient pas a une base historique peuplee creee avec `db push` (P3005).
+Voir la procedure de mise a niveau ci-dessous. Ne jamais ajouter
+`--accept-data-loss` ou `--force-reset` sur une base a conserver.
 
 Dans un second terminal, depuis `frontend/` :
 
@@ -76,8 +91,9 @@ accessible, s'ils ont ete crees avec les anciens mots de passe du projet.
 
 ## Docker
 
-Preparer d'abord le schema PostgreSQL depuis `backend/` avec les commandes
-`npm ci`, `npm run db:generate` et `npm run db:push`, sur la base visee.
+Pour une base neuve, preparer d'abord le schema PostgreSQL depuis `backend/`
+avec `npm ci`, `npm run db:generate` et `npm run db:push`.
+Pour une base existante, suivre la procedure de mise a niveau ci-dessous.
 Configurer ensuite le `.env` racine, avec une URL accessible depuis Docker.
 
 Depuis la racine :
@@ -115,6 +131,70 @@ CASINO_QA_URL=http://localhost:5173 npm run test:poker:e2e
 Ce test cree des comptes et des transactions. Ses rapports sont locaux et exclus
 du depot. Les validations unitaires ne constituent pas une certification de
 securite ni une autorisation de mise en production.
+
+La recette visuelle frontend utilise Chromium et des transports integralement
+mockes : aucune connexion backend, creation de compte ou mise reelle. Depuis
+`frontend/`, lancer `npm run test:visual`. Elle couvre les 13 jeux et le lobby en
+320/390/768/1440 px, conserve les captures dans `reports/frontend-visual/` et
+controle les debordements, le masquage des commandes et les erreurs JavaScript.
+Les suites Vitest de jeux verifient aussi le deroulement des animations avec
+des resultats serveur fixes, les actions repetees et le mouvement reduit.
+
+Les validations financieres PostgreSQL utilisent leur propre cluster local,
+ignorent l'URL applicative et le suppriment a la fin. Depuis `backend/`, avec
+les binaires PostgreSQL installes et un utilisateur non-root :
+
+```sh
+npm run build
+node scripts/financial.integration.mjs /usr/lib/postgresql/14/bin
+node scripts/validate-financial-migration.mjs /usr/lib/postgresql/14/bin
+```
+
+## Politique Financiere
+
+Les jeux contre la maison transferent les jetons entre joueur et caisse
+`admin@casino.com`. La mise et le gain maximal sont reserves avant acceptation ;
+une caisse insuffisante refuse la mise sans modifier les probabilites.
+Le dashboard distingue disponible, reserves bots, reserves jeux et total.
+Poker public transfere les stacks, et Bingo partage les tickets entre prix et
+commission maison. Les bonus, recompenses, achats simules et recharges admin
+sont des emissions explicites au journal, pas des paiements de la caisse.
+
+Les POST financiers acceptent `Idempotency-Key` (1 a 128 caracteres parmi
+lettres, chiffres, `.`, `_`, `:`, `-`). Conserver la meme cle pour rejouer la
+meme operation ; utiliser une nouvelle cle pour une nouvelle intention.
+Reutiliser une cle dans le meme perimetre avec un autre payload renvoie 409.
+Sans cle, aucun dedoublonnage generique n'est garanti. Les connexions Socket
+utilisent les protections propres aux sessions Poker/Bingo.
+
+Le backend reste mono-instance : les parties sont en memoire. Au redemarrage,
+les mises interrompues et les checkpoints d'escrow sont rembourses. Une reponse
+de demarrage rejouee apres redemarrage n'est pas une restauration de partie.
+La progression XP/taches post-paiement n'est pas durablement exactly-once.
+
+## Mise A Niveau
+
+Avant de changer une base existante, prendre un backup PostgreSQL natif et
+verifier sa restauration sur une copie isolee. Le backup JSON applicatif
+inclut desormais `FinancialOperation` et requiert donc le nouveau schema.
+Ne pas l'utiliser comme seul backup avant la migration.
+
+Inspecter le delta sur la copie restauree, depuis `backend/` :
+
+```sh
+npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script
+```
+
+Le delta attendu change seulement le defaut de `User.balance` a zero et ajoute
+`FinancialOperation` avec ses index/contraintes. Les soldes existants restent
+intacts. S'arreter si d'autres changements apparaissent.
+
+Repeter la procedure sur la copie puis, en maintenance sans backend actif,
+appliquer le delta verifie via `prisma db push --skip-generate` (sans options
+de perte de donnees), regenerer le client et deployer les images compatibles.
+Verifier les soldes, escrows, absence de derive de schema et la sante avant
+reouverture. Ne jamais seed/reset la base applicative. L'adoption de Prisma
+Migrate exige une baseline historique complete revue separement.
 
 ## Publication Git
 

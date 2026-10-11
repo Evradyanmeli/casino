@@ -3,6 +3,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { EconomyService } from '../../economy/EconomyService.js';
 import { AppError } from '../../auth/AuthService.js';
 import { GameLock, openWager, increaseWager, settleWager } from '../GameSupport.js';
+import { runFinancialOperation } from '../../economy/FinancialOperation.js';
 
 export interface Card {
   suit: 'hearts' | 'diamonds' | 'clubs' | 'spades';
@@ -78,43 +79,46 @@ export class BlackjackService {
     if (s.state === 'complete') setTimeout(() => this.sessions.delete(s.sessionId), 600000).unref();
   }
 
-  async startRound(userId: string, bet: number): Promise<GameState> {
+  async startRound(userId: string, bet: number, key?: string): Promise<GameState> {
     return this.lock.run(userId, async () => {
+      let staged: Session | undefined;
+      const result = await runFinancialOperation(this.prisma, userId, 'blackjack_start', key, { bet }, async tx => {
       if ([...this.sessions.values()].some(s => s.userId === userId && s.state === 'playing')) throw new AppError('Une main est deja active; reprendre cette session', 409);
       const s: Session = { userId, sessionId: randomUUID(), wagerId: '', shoe: createShoe(), dealerCards: [], hands: [],
         state: 'playing', insuranceBet: 0, insurancePayout: 0, insuranceAvailable: false };
       s.dealerCards = [s.shoe.pop()!, s.shoe.pop()!];
       s.hands = [makeHand([s.shoe.pop()!, s.shoe.pop()!], bet)];
       s.insuranceAvailable = s.dealerCards[0].rank === 'A' && bet >= 2;
-      await this.economyService.runInTransaction(async tx => {
-        s.wagerId = await openWager(tx, userId, 'blackjack', bet);
-        if (!s.insuranceAvailable && (s.hands[0].isBlackjack || handValue(s.dealerCards) === 21)) await this.resolve(s, tx);
-      });
-      this.publish(s);
+      s.wagerId = await openWager(tx, userId, 'blackjack', bet, bet * 3);
+      if (!s.insuranceAvailable && (s.hands[0].isBlackjack || handValue(s.dealerCards) === 21)) await this.resolve(s, tx);
+      staged = s;
       return this.toGameState(s);
+      });
+      if (staged) this.publish(staged);
+      return result;
     });
   }
 
-  private async action(userId: string, id: string, action: 'hit' | 'stand' | 'double' | 'split' | 'insurance', index = 0, amount = 0): Promise<GameState> {
+  private async action(userId: string, id: string, action: 'hit' | 'stand' | 'double' | 'split' | 'insurance', index = 0, amount = 0, key?: string): Promise<GameState> {
     return this.lock.run(userId, async () => {
-      const existing = this.sessions.get(id);
-      if (!existing) throw new AppError('Session introuvable', 404);
-      if (existing.userId !== userId) throw new AppError('Non autorise', 403);
-      if (existing.state === 'complete') return this.toGameState(existing);
-      const s = structuredClone(existing);
-      await this.economyService.runInTransaction(async tx => {
-        if (['insurance', 'split', 'double'].includes(action)) await new EconomyService(tx).assertCanPlay(userId, 'blackjack');
+      let staged: Session | undefined;
+      const result = await runFinancialOperation(this.prisma, userId, `blackjack_${action}`, key, { id, index, amount }, async tx => {
+        const existing = this.sessions.get(id);
+        if (!existing) throw new AppError('Session introuvable', 404);
+        if (existing.userId !== userId) throw new AppError('Non autorise', 403);
+        if (existing.state === 'complete') return this.toGameState(existing);
+        const s = staged = structuredClone(existing);
         if (action === 'insurance') {
           if (!s.insuranceAvailable || !Number.isSafeInteger(amount) || amount <= 0 || amount > Math.floor(s.hands[0].bet / 2)) throw new AppError('Assurance non disponible ou montant invalide', 400);
           await increaseWager(tx, s.wagerId, userId, 'blackjack', amount);
           s.insuranceBet = amount;
           s.insuranceAvailable = false;
           if (handValue(s.dealerCards) === 21 || s.hands[0].isBlackjack) await this.resolve(s, tx);
-          return;
+          return this.toGameState(s);
         }
         s.insuranceAvailable = false;
         // Peek before taking any extra wager. Insurance closes on the first normal action.
-        if (handValue(s.dealerCards) === 21 || s.hands[0].isBlackjack) { await this.resolve(s, tx); return; }
+        if (handValue(s.dealerCards) === 21 || s.hands[0].isBlackjack) { await this.resolve(s, tx); return this.toGameState(s); }
         if (!Number.isInteger(index) || index < 0 || index >= s.hands.length) throw new AppError('Main invalide', 400);
         const hand = s.hands[index];
         if (hand.isStanding || hand.isBusted) throw new AppError('Main deja terminee', 400);
@@ -143,9 +147,10 @@ export class BlackjackService {
           if (s.hands.some(h => !h.isBusted)) while (handValue(s.dealerCards) < 17) s.dealerCards.push(s.shoe.pop()!);
           await this.resolve(s, tx);
         }
+        return this.toGameState(s);
       });
-      this.publish(s);
-      return this.toGameState(s);
+      if (staged) this.publish(staged);
+      return result;
     });
   }
 
@@ -166,7 +171,7 @@ export class BlackjackService {
 
   hit(userId: string, id: string, index: number) { return this.action(userId, id, 'hit', index); }
   stand(userId: string, id: string, index: number) { return this.action(userId, id, 'stand', index); }
-  doubleDown(userId: string, id: string, index: number) { return this.action(userId, id, 'double', index); }
-  split(userId: string, id: string, index: number) { return this.action(userId, id, 'split', index); }
-  insurance(userId: string, id: string, amount: number) { return this.action(userId, id, 'insurance', 0, amount); }
+  doubleDown(userId: string, id: string, index: number, key?: string) { return this.action(userId, id, 'double', index, 0, key); }
+  split(userId: string, id: string, index: number, key?: string) { return this.action(userId, id, 'split', index, 0, key); }
+  insurance(userId: string, id: string, amount: number, key?: string) { return this.action(userId, id, 'insurance', 0, amount, key); }
 }

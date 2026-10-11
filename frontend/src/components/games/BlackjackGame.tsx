@@ -1,54 +1,11 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBalanceStore } from '@/store/balanceStore';
 import { gamesApi, type BlackjackState } from '@/services/games';
 import ResultSummary from './ResultSummary';
 import { useGameError } from './useGameError';
-
-const SUIT_SYMBOLS: Record<string, string> = {
-  hearts: '\u2665',
-  diamonds: '\u2666',
-  clubs: '\u2663',
-  spades: '\u2660',
-};
-
-const SUIT_COLORS: Record<string, string> = {
-  hearts: 'text-red-500',
-  diamonds: 'text-red-500',
-  clubs: 'text-gray-900',
-  spades: 'text-gray-900',
-};
-
-function CardView({ card, hidden, delay = 0 }: { card: { suit: string; rank: string }; hidden?: boolean; delay?: number }) {
-  if (hidden) {
-    return (
-      <div
-        className="w-16 h-24 sm:w-20 sm:h-28 rounded-lg bg-gradient-to-br from-blue-600 to-blue-800 border-2 border-blue-400 shadow-md flex items-center justify-center animate-card-deal"
-        style={{ animationDelay: `${delay}ms` }}
-      >
-        <div className="text-white text-xl font-display">?</div>
-      </div>
-    );
-  }
-  const color = SUIT_COLORS[card.suit] || 'text-gray-900';
-  const symbol = SUIT_SYMBOLS[card.suit] || card.suit;
-  return (
-    <div
-      className="w-16 h-24 sm:w-20 sm:h-28 rounded-lg bg-white border-2 border-gray-300 shadow-md flex flex-col items-center justify-between p-1.5 select-none animate-card-deal"
-      style={{ animationDelay: `${delay}ms` }}
-    >
-      <div className={`self-start text-xs sm:text-sm font-bold leading-none ${color}`}>
-        {card.rank}
-      </div>
-      <div className={`text-lg sm:text-2xl ${color}`}>
-        {symbol}
-      </div>
-      <div className={`self-end text-xs sm:text-sm font-bold leading-none rotate-180 ${color}`}>
-        {card.rank}
-      </div>
-    </div>
-  );
-}
+import GameHeader from './GameHeader';
+import { PlayingCard, CasinoChip, useReducedMotion } from './GameVisuals';
 
 function HandValue({ value, isBlackjack, isBusted }: { value: number; isBlackjack: boolean; isBusted: boolean }) {
   if (isBlackjack) return <span className="text-gold font-bold">Blackjack!</span>;
@@ -63,22 +20,43 @@ export default function BlackjackGame() {
   const [bet, setBet] = useState(10);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useGameError();
+  const reducedMotion = useReducedMotion();
+  const busy = useRef(true);
+  const mounted = useRef(false);
+  const revealTimer = useRef<{ id: ReturnType<typeof setTimeout>; resolve: () => void } | null>(null);
   useEffect(() => {
     let active = true;
+    mounted.current = true;
+    busy.current = true;
     setLoading(true);
     gamesApi.blackjackState().then(state => { if (active) setGameState(state); })
       .catch(err => { if (active) setError(err.response?.data?.error || 'Session indisponible'); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
+      .finally(() => { if (active) { busy.current = false; setLoading(false); } });
+    return () => {
+      active = false;
+      mounted.current = false;
+      if (revealTimer.current) { clearTimeout(revealTimer.current.id); revealTimer.current.resolve(); revealTimer.current = null; }
+    };
   }, []);
 
   const handleAction = useCallback(async (action: () => Promise<BlackjackState>) => {
+    if (busy.current) return;
+    busy.current = true;
     setLoading(true);
     setError('');
     try {
       const result = await action();
+      if (!mounted.current) return;
       setGameState(result);
+      if (!reducedMotion) {
+        const lastDelay = Math.max(result.dealerCards.length - 1,
+          ...result.hands.map(hand => result.dealerCards.length + hand.cards.length - 1)) * 100;
+        await new Promise<void>(resolve => { revealTimer.current = {
+          id: setTimeout(() => { revealTimer.current = null; resolve(); }, lastDelay + 400), resolve,
+        }; });
+      }
     } catch (err: any) {
+      if (!mounted.current) return;
       const msg = err.response?.data?.error || err.message || '';
       if (msg === 'Session introuvable') {
         setGameState(null);
@@ -87,9 +65,9 @@ export default function BlackjackGame() {
         setError(msg || 'Une erreur est survenue');
       }
     } finally {
-      setLoading(false);
+      if (mounted.current) { busy.current = false; setLoading(false); }
     }
-  }, []);
+  }, [reducedMotion]);
 
   const startRound = () => handleAction(() => gamesApi.blackjackStart(bet));
   const activeIndex = gameState ? gameState.activeHandIndex : 0;
@@ -108,65 +86,67 @@ export default function BlackjackGame() {
 
   if (!gameState) {
     return (
-      <div className="min-h-screen bg-[#0D0D1A] flex items-center justify-center p-4">
-        <div className="bg-[#1A1A2E] rounded-2xl p-8 border border-gray-800 max-w-sm w-full text-center space-y-6">
-          <button onClick={() => navigate('/lobby')} className="text-gray-400 hover:text-gold transition-colors text-sm block mb-2">
-            ← Retour
-          </button>
-          <h2 className="text-2xl font-display text-gold">Blackjack</h2>
+      <div className="max-w-5xl mx-auto space-y-5" aria-busy={loading}>
+        <GameHeader title="Blackjack" eyebrow="Table de cartes" description="Approchez-vous de 21 sans le depasser." onBack={() => navigate('/lobby')} />
+        <div className="casino-stage p-5 sm:p-8 flex flex-col items-center gap-6">
+          <div className="flex justify-center gap-3" aria-hidden="true">
+            <PlayingCard hidden /><PlayingCard hidden />
+          </div>
+        <div className="casino-panel p-5 sm:p-6 max-w-md w-full text-center space-y-6">
           <p className="text-gray-400">Solde: {balance} crédits</p>
           <div className="space-y-2">
             <label className="block text-sm text-gray-400">Mise</label>
-            <div className="flex gap-2 justify-center">
+            <div className="flex flex-wrap gap-2 justify-center">
               {[10, 25, 50, 100].map(v => (
                 <button
                   key={v}
                   onClick={() => setBet(v)}
-                  className={`px-4 py-2 rounded-lg font-semibold transition-all ${
+                  aria-label={`Mise ${v} credits`}
+                  aria-pressed={bet === v}
+                  disabled={loading}
+                  className={`min-h-[44px] px-4 py-2 rounded-lg font-semibold transition-all ${
                     bet === v ? 'bg-gold text-[#0D0D1A]' : 'bg-[#2A2A3E] text-gray-300 hover:bg-[#3A3A4E]'
                   }`}
                 >
-                  {v}
+                  <CasinoChip value={v} />
                 </button>
               ))}
             </div>
           </div>
           <button onClick={startRound} disabled={loading || bet > balance}
-            className="btn-primary w-full disabled:opacity-50">
+            className="btn-primary min-h-[44px] w-full disabled:opacity-50">
             {loading ? 'Chargement...' : 'Distribuer'}
           </button>
-          {error && <p className="text-red-400 text-sm">{error}</p>}
+          {error && <p role="alert" className="text-red-400 text-sm">{error}</p>}
+        </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#0D0D1A] flex flex-col">
-      <div className="flex-1 bg-gradient-to-b from-green-900 via-green-800 to-green-900 m-4 sm:m-6 rounded-2xl shadow-2xl border border-green-700/30 flex flex-col relative overflow-hidden">
-        <div className="absolute inset-0 opacity-5" style={{ backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(255,215,0,0.3) 0%, transparent 50%)' }} />
-
-        <div className="relative z-10 flex flex-col items-center py-6 px-4 flex-1">
-          <button onClick={() => navigate('/lobby')} className="text-gray-400 hover:text-gold transition-colors text-sm self-start mb-2">
-            ← Retour
-          </button>
-          <h2 className="text-2xl font-display text-gold mb-6">Blackjack</h2>
+    <div className="max-w-5xl mx-auto space-y-5" aria-busy={loading}>
+      <GameHeader title="Blackjack" eyebrow="Table de cartes" onBack={() => navigate('/lobby')}>
+        <span className="text-sm text-gray-300">Mise totale: {gameState.hands.reduce((total, hand) => total + hand.bet, 0) + gameState.insuranceBet} credits</span>
+      </GameHeader>
+      <div className="casino-stage flex flex-col relative">
+        <div className="relative z-10 flex flex-col items-center py-6 px-3 sm:px-6">
 
           {showInsurance && !isComplete && (
             <div className="bg-yellow-900/40 border border-yellow-600/30 rounded-lg px-4 py-2 mb-4 text-center">
               <p className="text-yellow-300 text-sm mb-2">Assurance disponible</p>
               <button onClick={takeInsurance} disabled={loading}
-                className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-1.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-50">
+                className="min-h-[44px] bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-1.5 rounded-lg text-sm font-semibold transition-all disabled:opacity-50">
                 Assurance {Math.floor(gameState.hands[0].bet / 2)}
               </button>
             </div>
           )}
 
-          <div className="mb-8 text-center">
+          <div className="mb-8 text-center w-full">
             <p className="text-gray-400 text-xs uppercase tracking-wider mb-3">Croupier</p>
-            <div className="flex gap-2 justify-center">
-              {gameState.dealerCards.map((card, i) => (
-                <CardView key={i} card={card} hidden={gameState.dealerHidden && i === 1} delay={i * 100} />
+            <div className="flex flex-wrap gap-2 justify-center">
+              {Array.from({ length: gameState.dealerHidden ? Math.max(2, gameState.dealerCards.length) : gameState.dealerCards.length }, (_, i) => (
+                <PlayingCard key={i} card={gameState.dealerCards[i]} hidden={gameState.dealerHidden && (i === 1 || !gameState.dealerCards[i])} delay={i * 100} />
               ))}
             </div>
             <p className="mt-2">
@@ -174,15 +154,16 @@ export default function BlackjackGame() {
             </p>
           </div>
 
-          <div className="flex-1 flex flex-col justify-center">
+          <p className="text-gold/70 text-[10px] tracking-[0.2em] uppercase text-center mb-6">Blackjack paie 3 pour 2</p>
+          <div className="w-full grid gap-4 sm:grid-cols-2">
             {gameState.hands.map((hand, hi) => (
-              <div key={hi} className={`mb-6 text-center ${hi === activeIndex && !isComplete ? 'ring-2 ring-gold rounded-lg p-2' : ''}`}>
+              <div key={hi} className={`mb-6 text-center rounded-xl p-3 min-w-0 ${gameState.hands.length === 1 ? 'sm:col-span-2' : ''} ${hi === activeIndex && !isComplete ? 'ring-1 ring-gold bg-black/10' : ''}`}>
                 <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">
-                  Main {hi + 1} ({hand.bet})
+                  Main {hi + 1} · Mise {hand.bet}{hi === activeIndex && !isComplete ? ' · A vous' : ''}
                 </p>
-                <div className="flex gap-2 justify-center">
+                <div className="flex flex-wrap gap-2 justify-center">
                   {hand.cards.map((card, i) => (
-                    <CardView key={i} card={card} delay={(gameState.dealerCards.length + i) * 100} />
+                    <PlayingCard key={i} card={card} delay={(gameState.dealerCards.length + i) * 100} />
                   ))}
                 </div>
                 <p className="mt-2">
@@ -192,19 +173,18 @@ export default function BlackjackGame() {
             ))}
           </div>
 
-          {isComplete && (
-            <div className="text-center mb-4">
-              {gameState.hands.map((hand, i) => (
-                <ResultSummary key={i} payout={hand.payout} bet={hand.bet} />
-              ))}
-              <button onClick={() => setGameState(null)} className="btn-primary mt-4">
+          {isComplete && !loading && (
+            <div className="casino-panel p-4 text-center mb-4" role="status" aria-live="polite">
+              <ResultSummary payout={gameState.hands.reduce((total, hand) => total + hand.payout, 0) + gameState.insurancePayout} bet={gameState.hands.reduce((total, hand) => total + hand.bet, 0) + gameState.insuranceBet} />
+              {gameState.insuranceBet > 0 && <p className="text-sm text-gray-300 mt-2">Assurance incluse: mise {gameState.insuranceBet}, retour {gameState.insurancePayout}</p>}
+              <button onClick={() => setGameState(null)} className="btn-primary min-h-[44px] mt-4">
                 Nouvelle partie
               </button>
             </div>
           )}
 
           {!isComplete && (
-            <div className="flex gap-2 sm:gap-3 flex-wrap justify-center mt-auto pb-4">
+            <div className="casino-panel p-3 flex gap-2 sm:gap-3 flex-wrap justify-center mt-auto mb-4 [&_button]:min-h-[44px]">
               <button onClick={hit} disabled={loading || gameState.state !== 'playing'}
                 className="bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-6 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg">
                 Carte
@@ -224,8 +204,8 @@ export default function BlackjackGame() {
             </div>
           )}
 
-          {error && <p className="text-red-400 text-sm mt-2 text-center">{error}</p>}
-          {loading && <p className="text-gray-400 text-sm mt-2 text-center">Chargement...</p>}
+          {error && <p role="alert" className="text-red-400 text-sm mt-2 text-center">{error}</p>}
+          {loading && <p role="status" className="text-gray-400 text-sm mt-2 text-center">Chargement...</p>}
         </div>
       </div>
     </div>

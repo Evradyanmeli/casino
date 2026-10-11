@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { prisma } from '../../infrastructure/database/prisma.js';
 import { AppError } from '../auth/AuthService.js';
+import { transactionFilter } from '../economy/EconomyService.js';
 
 const profileSelect = {
   id: true, email: true, pseudo: true, role: true, status: true, balance: true,
@@ -71,10 +72,7 @@ export class UserService {
     const offset = filter?.offset ?? 0;
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(offset) || offset < 0)
       throw new AppError('Pagination invalide', 400);
-    // Both types are persisted: seed uses bet/win, live games use game_bet/game_win.
-    const type = filter?.type === 'bet' ? { in: ['bet', 'game_bet'] }
-      : filter?.type === 'win' ? { in: ['win', 'game_win'] } : filter?.type;
-    const where = { userId, ...(type ? { type } : {}) };
+    const where = transactionFilter(userId, filter?.type);
     const [transactions, total] = await Promise.all([
       this.db.transaction.findMany({ where, orderBy: { createdAt: 'desc' }, take: limit, skip: offset }),
       this.db.transaction.count({ where }),

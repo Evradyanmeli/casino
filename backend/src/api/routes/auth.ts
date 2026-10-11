@@ -20,7 +20,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await app.prisma.systemSetting.upsert({ where: { key: `session_started:${user.id}` }, create: { key: `session_started:${user.id}`, value: Date.now() }, update: { value: Date.now() } });
       await new TaskService(app.prisma).incrementProgress(user.id, 'login').catch(err => app.log.error(err));
 
-      const accessToken = app.jwt.sign({ sub: user.id, role: user.role }, { expiresIn: '15m' });
+      const accessToken = app.jwt.sign({ sub: user.id, role: user.role, type: 'access' }, { expiresIn: '15m' });
       const refreshToken = app.jwt.sign({ sub: user.id, type: 'refresh' }, { expiresIn: '7d' });
 
       reply.status(201).send({
@@ -57,7 +57,7 @@ export default async function authRoutes(app: FastifyInstance) {
       await app.prisma.systemSetting.upsert({ where: { key: `session_started:${user.id}` }, create: { key: `session_started:${user.id}`, value: Date.now() }, update: { value: Date.now() } });
       await new TaskService(app.prisma).incrementProgress(user.id, 'login').catch(err => app.log.error(err));
 
-      const accessToken = app.jwt.sign({ sub: user.id, role: user.role }, { expiresIn: '15m' });
+      const accessToken = app.jwt.sign({ sub: user.id, role: user.role, type: 'access' }, { expiresIn: '15m' });
       const refreshToken = app.jwt.sign({ sub: user.id, type: 'refresh' }, { expiresIn: '7d' });
 
       reply.send({
@@ -82,40 +82,8 @@ export default async function authRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post('/google', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      const schema = z.object({
-        googleId: z.string().min(1),
-        email: z.string().email(),
-        pseudo: z.string().min(3).max(20),
-      });
-
-      const data = schema.parse(request.body);
-      const user = await authService.loginWithGoogle(data.googleId, data.email, data.pseudo);
-
-      const accessToken = app.jwt.sign({ sub: user.id, role: user.role }, { expiresIn: '15m' });
-      const refreshToken = app.jwt.sign({ sub: user.id, type: 'refresh' }, { expiresIn: '7d' });
-
-      reply.send({
-        user: {
-          id: user.id,
-          email: user.email,
-          pseudo: user.pseudo,
-          role: user.role,
-          balance: user.balance.toString(),
-        },
-        accessToken,
-        refreshToken,
-      });
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return reply.status(400).send({ error: 'Validation error', details: err.errors });
-      }
-      if (err instanceof AppError) {
-        return reply.status(err.statusCode).send({ error: err.message });
-      }
-      throw err;
-    }
+  app.post('/google', async (_request: FastifyRequest, reply: FastifyReply) => {
+    return reply.status(503).send({ error: 'Google authentication is not configured' });
   });
 
   app.post('/refresh', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -136,7 +104,7 @@ export default async function authRoutes(app: FastifyInstance) {
         return reply.status(401).send({ error: 'User not found or inactive' });
       }
 
-      const accessToken = app.jwt.sign({ sub: user.id, role: user.role }, { expiresIn: '15m' });
+      const accessToken = app.jwt.sign({ sub: user.id, role: user.role, type: 'access' }, { expiresIn: '15m' });
       const refreshToken = app.jwt.sign({ sub: user.id, type: 'refresh' }, { expiresIn: '7d' });
 
       reply.send({ accessToken, refreshToken });
@@ -154,19 +122,8 @@ export default async function authRoutes(app: FastifyInstance) {
         email: z.string().email(),
       });
 
-      const data = schema.parse(request.body);
-      const user = await app.prisma.user.findUnique({ where: { email: data.email } });
-
-      if (!user) {
-        return reply.send({ message: 'If the email exists, a reset link has been sent' });
-      }
-
-      const resetToken = app.jwt.sign({ sub: user.id, type: 'reset' }, { expiresIn: '15m' });
-
-      reply.send({
-        message: 'If the email exists, a reset link has been sent',
-        resetToken,
-      });
+      schema.parse(request.body);
+      return reply.status(503).send({ error: 'Password reset email delivery is not configured' });
     } catch (err) {
       if (err instanceof z.ZodError) {
         return reply.status(400).send({ error: 'Validation error', details: err.errors });

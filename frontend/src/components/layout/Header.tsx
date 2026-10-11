@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/store/authStore';
 import { useBalanceStore } from '@/store/balanceStore';
 import NotificationBell from '@/components/notifications/NotificationBell';
+import Modal from '@/components/ui/Modal';
 
 export default function Header() {
   const { t, i18n } = useTranslation();
@@ -11,167 +12,55 @@ export default function Header() {
   const { balance } = useBalanceStore();
   const [mobileOpen, setMobileOpen] = useState(false);
   const navigate = useNavigate();
-  const handleLogout = () => { logout(); navigate('/login', { replace: true }); };
-
+  const isAdmin = user?.role === 'ADMIN';
+  const home = isAdmin ? '/admin' : '/lobby';
+  const links = isAdmin ? [{ to: '/admin', title: t('admin.dashboard') }] : [
+    { to: '/lobby', title: t('nav.lobby') },
+    { to: '/tasks', title: t('nav.tasks') },
+    { to: '/shop', title: t('nav.shop') },
+  ];
   const toggleLang = () => {
     const lang = i18n.language === 'fr' ? 'en' : 'fr';
-    i18n.changeLanguage(lang);
+    void i18n.changeLanguage(lang);
     localStorage.setItem('lang', lang);
   };
+  const handleLogout = () => { logout(); navigate('/login', { replace: true }); };
+  const wallet = <div className="casino-wallet" title={`${balance.toLocaleString()} GC`} aria-label={`${t('common.balance')} : ${balance.toLocaleString()} GC`}>
+    <svg className="hidden h-4 w-4 shrink-0 sm:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3" /><path d="M3 10h18m-18-4 14-3v3m-3 8h7" /><circle cx="17" cy="14" r=".5" /></svg>
+    <span className="min-w-0 truncate">{balance.toLocaleString()} <span className="text-[10px] font-normal text-[#b8aa8b]">GC</span></span>
+  </div>;
+  const languageButton = <button type="button" onClick={toggleLang} className="casino-nav-action px-3" aria-label={i18n.language === 'fr' ? 'Switch to English' : 'Passer en français'}>{i18n.language === 'fr' ? 'EN' : 'FR'}</button>;
+  const logoutButton = <button type="button" onClick={handleLogout} className="casino-nav-action" aria-label={t('nav.logout')} title={t('nav.logout')}><svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M14 8V5H4v14h10v-3m-4-4h10m-4-4 4 4-4 4" /></svg></button>;
 
-  return (
-    <header className="fixed top-0 left-0 right-0 z-40 bg-[#0D0D1A]/95 backdrop-blur-md border-b border-gray-800">
-      <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-        <Link to="/lobby" className="flex items-center gap-2">
-          <span className="text-2xl font-display font-bold text-gold tracking-wider">CASINO<span className="text-white">X</span></span>
-        </Link>
-
-        <div className="hidden md:flex items-center gap-4">
-          {user?.role === 'ADMIN' ? (
-            <>
-              <Link
-                to="/admin"
-                className="text-accent hover:text-gold transition-colors text-sm font-semibold"
-              >
-                {t('admin.dashboard')}
-              </Link>
-            </>
-          ) : (
-            <>
-              <div className="flex items-center gap-2 bg-[#1A1A2E] rounded-lg px-4 py-2 border border-gray-700">
-                <svg className="w-4 h-4 text-gold" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z" />
-                  <path fillRule="evenodd" d="M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z" clipRule="evenodd" />
-                </svg>
-                <span className="font-semibold text-gold">{balance.toLocaleString()} GC</span>
-              </div>
-
-              <Link
-                to="/tasks"
-                className="text-gray-400 hover:text-gold transition-colors text-sm font-semibold"
-                title={t('nav.tasks')}
-              >
-                {t('nav.tasks')}
-              </Link>
-
-              <NotificationBell />
-
-              <Link
-                to="/shop"
-                className="text-gray-400 hover:text-gold transition-colors"
-                title={t('nav.shop')}
-                aria-label={t('nav.shop')}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
-                </svg>
-              </Link>
-
-              <Link to="/profile" aria-label={t('nav.profile')} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gold to-secondary flex items-center justify-center text-sm font-bold text-white">
-                  {user?.pseudo?.charAt(0).toUpperCase() || '?'}
-                </div>
-              </Link>
-            </>
-          )}
-
-          <button
-            onClick={toggleLang}
-            className="text-xs font-bold uppercase tracking-wider text-gray-400 hover:text-gold transition-colors px-2 py-1 border border-gray-700 rounded"
-          >
-            {i18n.language === 'fr' ? 'EN' : 'FR'}
-          </button>
-
-          <button
-            onClick={handleLogout}
-            className="text-gray-400 hover:text-error transition-colors"
-            title={t('nav.logout')}
-            aria-label={t('nav.logout')}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-          </button>
+  return <>
+    <header className="casino-nav fixed inset-x-0 top-0 z-40 border-b border-[#bda36a]/20 bg-[#101914]/95 backdrop-blur-xl">
+      <div className="mx-auto flex h-16 max-w-7xl min-w-0 items-center justify-between gap-2 px-3 sm:px-6">
+        <Link to={home} aria-label="CasinoX" className="casino-wordmark shrink-0">Casino<span>X</span><span className="ml-3 hidden rounded border border-white/10 px-1.5 py-0.5 font-sans text-[9px] tracking-normal text-[#929d95] xl:block">18+</span></Link>
+        <nav className="hidden items-center gap-1 lg:flex" aria-label={t('casino.navigation')}>
+          {links.map(link => <NavLink key={link.to} to={link.to} className="casino-nav-link">{link.title}</NavLink>)}
+        </nav>
+        <div className="hidden min-w-0 items-center gap-3 lg:flex">
+          {!isAdmin && <>{wallet}<NotificationBell /></>}
+          <Link to={isAdmin ? '/admin' : '/profile'} aria-label={t('nav.profile')} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d1b675]/35 bg-[#c7a35e]/10 text-sm font-semibold text-[#e6cc94]" title={user?.pseudo}>{user?.pseudo?.charAt(0).toUpperCase() || '?'}</Link>
+          {languageButton}{logoutButton}
         </div>
-
-        <button
-          onClick={() => setMobileOpen(!mobileOpen)}
-          aria-label={t('common.menu')}
-          aria-expanded={mobileOpen}
-          className="md:hidden text-gray-400 hover:text-white transition-colors"
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            {mobileOpen ? (
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            )}
-          </svg>
-        </button>
+        {!isAdmin && <div className="min-w-0 max-w-[165px] lg:hidden">{wallet}</div>}
+        <button type="button" onClick={() => setMobileOpen(true)} aria-label={t('common.menu', { defaultValue: 'Menu' })} aria-haspopup="dialog" aria-expanded={mobileOpen}
+          className="casino-nav-action h-11 w-11 shrink-0 lg:hidden"><svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg></button>
       </div>
-
-      {mobileOpen && (
-        <div className="md:hidden border-t border-gray-800 bg-[#0D0D1A]/95 backdrop-blur-md">
-          <div className="px-4 py-3 space-y-3">
-            {user?.role === 'ADMIN' ? (
-              <Link
-                to="/admin"
-                className="block text-accent hover:text-gold transition-colors text-sm font-semibold"
-                onClick={() => setMobileOpen(false)}
-              >
-                {t('admin.dashboard')}
-              </Link>
-            ) : (
-              <>
-                <div className="flex items-center gap-2 bg-[#1A1A2E] rounded-lg px-4 py-2 border border-gray-700">
-                  <svg className="w-4 h-4 text-gold" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z" />
-                    <path fillRule="evenodd" d="M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z" clipRule="evenodd" />
-                  </svg>
-                  <span className="font-semibold text-gold">{balance.toLocaleString()} GC</span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <Link to="/tasks" className="text-gray-400 text-sm" onClick={() => setMobileOpen(false)}>{t('nav.tasks')}</Link>
-                  <NotificationBell />
-                  <Link
-                    to="/shop"
-                    className="text-gray-400 hover:text-gold transition-colors"
-                    title={t('nav.shop')}
-                    aria-label={t('nav.shop')}
-                  >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
-                    </svg>
-                  </Link>
-                  <Link to="/profile" className="flex items-center gap-2 hover:opacity-80 transition-opacity text-sm text-white">
-                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-gold to-secondary flex items-center justify-center text-xs font-bold text-white">
-                      {user?.pseudo?.charAt(0).toUpperCase() || '?'}
-                    </div>
-                    {t('nav.profile')}
-                  </Link>
-                </div>
-              </>
-            )}
-            <div className="flex gap-2">
-              <button
-                onClick={toggleLang}
-                className="text-xs font-bold uppercase tracking-wider text-gray-400 hover:text-gold transition-colors px-2 py-1 border border-gray-700 rounded"
-              >
-                {i18n.language === 'fr' ? 'EN' : 'FR'}
-              </button>
-              <button
-                onClick={handleLogout}
-                className="text-xs text-gray-400 hover:text-error transition-colors flex items-center gap-1"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
-                {t('nav.logout')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </header>
-  );
+    <Modal isOpen={mobileOpen} onClose={() => setMobileOpen(false)} title={t('casino.navigation')}>
+      <div className="mb-5 min-w-0 rounded-xl border border-[#bda36a]/20 bg-[#c7a35e]/5 p-4">
+        <p className="casino-eyebrow">CasinoX</p><p className="mb-3 break-words text-sm text-[#e6dfce]">{user?.pseudo}</p>{!isAdmin && wallet}
+      </div>
+      <nav className="grid gap-1" aria-label={t('casino.navigation')}>
+        {links.map(link => <NavLink key={link.to} to={link.to} onClick={() => setMobileOpen(false)} className="casino-nav-link">{link.title}</NavLink>)}
+        {!isAdmin && <NavLink to="/profile" onClick={() => setMobileOpen(false)} className="casino-nav-link">{t('nav.profile')}</NavLink>}
+        <NavLink to="/responsible-gaming" onClick={() => setMobileOpen(false)} className="casino-nav-link">{t('rg.title')}</NavLink>
+      </nav>
+      <div className="mt-5 flex items-center justify-between border-t border-white/10 pt-4">
+        {languageButton}<div className="flex items-center gap-3">{!isAdmin && <NotificationBell />}{logoutButton}</div>
+      </div>
+    </Modal>
+  </>;
 }

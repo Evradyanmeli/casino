@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import Layout from '@/components/layout/Layout';
+import PageHeader from '@/components/ui/PageHeader';
 import { LevelBadge } from '@/components/progression/LevelBadge';
 import { TasksPanel } from '@/components/progression/TasksPanel';
 import { BadgesDisplay } from '@/components/progression/BadgesDisplay';
@@ -9,11 +10,8 @@ export default function TasksPage() {
   const { t } = useTranslation();
   return (
     <Layout>
-      <div className="max-w-4xl mx-auto space-y-8">
-        <button onClick={() => window.history.back()} className="text-gray-400 hover:text-gold transition-colors text-sm">
-          ← Retour
-        </button>
-        <h1 className="text-2xl font-display font-bold text-white">{t('nav.tasks')}</h1>
+      <div className="mx-auto min-w-0 max-w-6xl space-y-8 [&_button]:min-h-11">
+        <PageHeader title={t('nav.tasks')} eyebrow="Votre parcours CasinoX" description="Accomplissez vos objectifs, progressez dans la course et découvrez vos distinctions." backTo="/lobby" />
         <LevelBadge />
         <TasksPanel />
         <RaceLeaderboard />

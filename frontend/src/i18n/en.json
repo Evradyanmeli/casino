@@ -1,4 +1,24 @@
 {
+  "casino": {
+    "back": "Back to the lounge",
+    "navigation": "Your CasinoX lounge",
+    "reducedMotion": "Reduced motion",
+    "fullMotion": "Animations on",
+    "systemMotion": "Your device's preference",
+    "welcome": "Welcome to the CasinoX lounge",
+    "heroTitle": "The spirit of a casino. The joy of play.",
+    "heroDescription": "From felt tables to golden reels, rediscover the classics in a lounge designed around you. Virtual chips only.",
+    "explore": "Find my table",
+    "collection": "The collection",
+    "experiences": "experiences",
+    "disclaimer": "18+ · Social casino for entertainment. Virtual chips, no real money.",
+    "genres": {
+      "slots": "Reels & paylines", "blackjack": "The art of 21", "roulette": "The European table",
+      "poker": "Texas Hold'em", "craps": "Two dice, one point", "bingo": "The numbers lounge",
+      "mines": "Precious stones", "crash": "The multiplier curve", "plinko": "The golden cascade",
+      "wheel": "The wheel of fortune", "limbo": "Choose your target", "keno": "Your numbers, your draw", "videopoker": "Jacks or Better"
+    }
+  },
   "auth": {
     "login": {
       "title": "Login",
@@ -133,6 +153,10 @@
     "chat": "Chat",
     "notifications": "Notifications",
     "houseAccount": "House Account",
+    "availableTreasury": "Available Treasury",
+    "reservedBotCapital": "Reserved Bot Capital",
+    "reservedGameCapital": "Reserved Game Capital",
+    "totalTreasury": "Total Treasury",
     "recharge": "Recharge",
     "rechargeHouse": "Recharge House Account",
     "rechargeDesc": "Enter the amount to inject into the virtual economy",

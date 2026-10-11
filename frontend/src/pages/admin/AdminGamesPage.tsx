@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
+import PageHeader from '@/components/ui/PageHeader';
 import { adminApi } from '@/services/admin';
 import type { GameStat, GameConfig } from '@/types';
 import { requestError } from '@/services/feedback';
@@ -58,17 +59,17 @@ export default function AdminGamesPage() {
   const getConfigForGame = (game: string) => configs.find(c => c.gameType === game);
 
   if (loading) {
-    return <p className="text-gray-400">{t('common.loading')}</p>;
+    return <div className="space-y-6"><PageHeader title={t('admin.gamesConfig')} eyebrow="Administration" /><p role="status" className="casino-empty text-gray-400">{t('common.loading')}</p></div>;
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-display text-gold">{t('admin.gamesConfig')}</h1>
-      {statsError && <p role="alert" className="text-error">{t('admin.statsUnavailable')}: {statsError}</p>}
-      {configError && <p role="alert" className="text-error">{t('admin.configUnavailable')}: {configError}</p>}
+    <div className="min-w-0 space-y-6">
+      <PageHeader title={t('admin.gamesConfig')} eyebrow="Administration" />
+      {statsError && <p role="alert" className="casino-panel p-5 break-words text-error">{t('admin.statsUnavailable', { defaultValue: 'Statistics unavailable' })}: {statsError}</p>}
+      {configError && <p role="alert" className="casino-panel p-5 break-words text-error">{t('admin.configUnavailable', { defaultValue: 'Configuration unavailable' })}: {configError}</p>}
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+      <div className="admin-table-wrap max-w-full overflow-x-auto" role="region" aria-label={t('admin.gamesConfig')} tabIndex={0}>
+        <table className="admin-table w-full min-w-[900px] text-sm tabular-nums">
           <thead>
             <tr className="text-gray-400 border-b border-gray-800">
               <th className="text-left py-2 px-2">{t('admin.game')}</th>
@@ -86,18 +87,18 @@ export default function AdminGamesPage() {
               const stat = gameStats.find(s => s.game === game);
               const config = getConfigForGame(game);
               return (
-                <tr key={game} className="border-b border-gray-800 hover:bg-[#1A1A2E]/50">
-                  <td className="py-2 px-2 text-white font-semibold capitalize">{game}</td>
+                <tr key={game} className="border-b border-white/5 hover:bg-white/[0.03]">
+                  <td className="py-2 px-2 text-white font-semibold">{t(`lobby.gamesList.${game}`)}</td>
                    <td className="py-2 px-2 text-right text-white">{statsError ? '-' : stat?.playCount.toLocaleString() || '0'}</td>
                    <td className="py-2 px-2 text-right text-white">{statsError ? '-' : stat?.totalBet.toLocaleString() || '0'}</td>
                    <td className="py-2 px-2 text-right text-white">{statsError ? '-' : stat?.totalWin.toLocaleString() || '0'}</td>
-                  <td className="py-2 px-2 text-right text-white">{stat?.rtp ?? '-'}%</td>
-                  <td className="py-2 px-2 text-right text-white">{config?.houseEdge ?? '-'}%</td>
+                  <td className="py-2 px-2 text-right text-white">{statsError || stat?.rtp == null ? '-' : `${stat.rtp}%`}</td>
+                  <td className="py-2 px-2 text-right text-white">{config?.houseEdge == null ? '-' : `${config.houseEdge}%`}</td>
                   <td className="py-2 px-2 text-center">
-                     {config ? <span aria-label={config.active ? t('admin.active') : t('admin.inactive')} className={`inline-block w-2 h-2 rounded-full ${config.active ? 'bg-success' : 'bg-error'}`} /> : '-'}
+                     {config ? <span className={`inline-flex rounded-full border px-2 py-1 text-xs ${config.active ? 'border-success/20 bg-success/5 text-success' : 'border-gray-600 text-gray-400'}`}>{config.active ? t('admin.active') : t('admin.inactive', { defaultValue: 'Inactive' })}</span> : '-'}
                   </td>
                   <td className="py-2 px-2 text-right">
-                     <Button variant="ghost" disabled={!config || !!configError} onClick={() => config && openEdit(config)} className="text-xs py-1 px-2">
+                     <Button variant="ghost" disabled={!config || !!configError} onClick={() => config && openEdit(config)} className="min-h-11 text-xs px-3">
                       {t('admin.configure')}
                     </Button>
                   </td>
@@ -125,7 +126,7 @@ export default function AdminGamesPage() {
               max="100"
               value={editForm.houseEdge}
               onChange={e => setEditForm(f => ({ ...f, houseEdge: parseFloat(e.target.value) || 0 }))}
-              className="input-field"
+              className="input-field min-h-11"
             />
           </div>
           <div>
@@ -136,7 +137,7 @@ export default function AdminGamesPage() {
               min="1"
               value={editForm.minBet}
               onChange={e => setEditForm(f => ({ ...f, minBet: parseInt(e.target.value) || 0 }))}
-              className="input-field"
+              className="input-field min-h-11"
             />
           </div>
           <div>
@@ -147,7 +148,7 @@ export default function AdminGamesPage() {
               min="1"
               value={editForm.maxBet}
               onChange={e => setEditForm(f => ({ ...f, maxBet: parseInt(e.target.value) || 0 }))}
-              className="input-field"
+              className="input-field min-h-11"
             />
           </div>
           <div className="flex items-center gap-3">
@@ -157,9 +158,9 @@ export default function AdminGamesPage() {
               aria-checked={editForm.active}
               aria-label={t('admin.active')}
               onClick={() => setEditForm(f => ({ ...f, active: !f.active }))}
-              className={`relative w-12 h-6 rounded-full transition-colors ${editForm.active ? 'bg-success' : 'bg-gray-700'}`}
+              className={`relative w-14 h-11 rounded-full border transition-colors ${editForm.active ? 'bg-success/20 border-success/40' : 'bg-white/5 border-gray-600'}`}
             >
-              <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-transform ${editForm.active ? 'translate-x-6' : 'translate-x-0.5'}`} />
+              <span className={`absolute left-1 top-2.5 w-5 h-5 bg-white rounded-full transition-transform ${editForm.active ? 'translate-x-6' : 'translate-x-0'}`} />
             </button>
           </div>
           <div className="flex gap-3 pt-2">

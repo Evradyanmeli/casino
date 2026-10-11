@@ -7,7 +7,8 @@ type State = Record<string, Row[]>;
 // An isolated transactional double: no Prisma connection or shared database is opened.
 export function testDatabase(initial: State = {}) {
   const models = ['user', 'transaction', 'gameSession', 'auditLog', 'systemSetting', 'gameConfig',
-       'notification', 'chatMessage', 'task', 'userTask', 'badge', 'userBadge', 'race', 'raceEntry', 'responsibleLimit'];
+       'notification', 'chatMessage', 'task', 'userTask', 'badge', 'userBadge', 'race', 'raceEntry', 'responsibleLimit',
+       'financialOperation', 'dailyReward'];
   let state: State = Object.fromEntries(models.map(model => [model, structuredClone(initial[model] ?? [])]));
   state.gameSession = state.gameSession.map(row => ({ endedAt: row.createdAt ?? new Date(), ...row }));
   let serial = 0;
@@ -23,6 +24,7 @@ export function testDatabase(initial: State = {}) {
   const matches = (model: string, row: Row, where: Row = {}): boolean => Object.entries(where).every(([key, value]) => {
     if (key === 'OR') return value.some((w: Row) => matches(model, row, w));
     if (key === 'AND') return value.every((w: Row) => matches(model, row, w));
+    if (key === 'NOT') return !(Array.isArray(value) ? value : [value]).some((w: Row) => matches(model, row, w));
     if (key.includes('_') && typeof value === 'object' && !(key in row)) return matches(model, row, value);
     const actual = relation(model, row, key);
     if (value instanceof Date) return actual?.getTime() === value.getTime();
@@ -36,6 +38,7 @@ export function testDatabase(initial: State = {}) {
       if (op === 'lt') return actual != null && actual < expected;
       if (op === 'not') return actual !== expected;
       if (op === 'in') return expected.includes(actual);
+      if (op === 'notIn') return !expected.includes(actual);
       if (op === 'contains') return String(actual).toLowerCase().includes(String(expected).toLowerCase());
       if (op === 'mode') return true;
       return actual && matches(key, actual, { [op]: expected });
@@ -88,6 +91,8 @@ export function testDatabase(initial: State = {}) {
     const create = (args: Row) => {
       const row: Row = { id: `${model}-${++serial}`, createdAt: new Date(), endedAt: new Date(), ...structuredClone(args.data) };
       if (model === 'userTask') Object.assign(row, { progress: 0, completed: false, claimed: false, completedAt: null }, args.data);
+      if (model === 'raceEntry') Object.assign(row, { xp: 0, rank: null, prize: 0, claimed: false }, args.data);
+      if (model === 'financialOperation') Object.assign(row, { result: null }, args.data);
       state[model].push(row);
       return project(model, row, args);
     };

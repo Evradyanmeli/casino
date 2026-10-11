@@ -134,7 +134,7 @@ async function quit(actor) {
       second = await start(a, 200, true); assert.notEqual(second, first);
       assert.equal(await balance(a), a.initial - 240);
       assert.equal((await transactions(a)).filter(t => t.type === 'poker_buyin').length, 2);
-      assert.ok(a.state.players.filter(p => p.isBot).every(p => [5000, 4995, 4990].includes(p.chips)));
+      assert.ok(a.state.players.filter(p => p.isBot).every(p => [200, 195, 190].includes(p.chips)));
       return { second };
     });
     await check('RELOAD-RESUMES-CARDS-NO-DEBIT', async () => {

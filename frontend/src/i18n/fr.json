@@ -1,4 +1,24 @@
 {
+  "casino": {
+    "back": "Retour au salon",
+    "navigation": "Votre salon CasinoX",
+    "reducedMotion": "Mouvement réduit",
+    "fullMotion": "Animations actives",
+    "systemMotion": "Préférence de votre appareil",
+    "welcome": "Bienvenue au salon CasinoX",
+    "heroTitle": "L'esprit du casino. Le plaisir du jeu.",
+    "heroDescription": "Des tables de feutre aux rouleaux dorés, retrouvez vos classiques dans un salon de jeu pensé pour vous. Exclusivement en jetons virtuels.",
+    "explore": "Choisir ma table",
+    "collection": "La collection",
+    "experiences": "expériences",
+    "disclaimer": "18+ · Casino social de divertissement. Jetons virtuels, sans argent réel.",
+    "genres": {
+      "slots": "Rouleaux & lignes", "blackjack": "L'art du 21", "roulette": "La table européenne",
+      "poker": "Texas Hold'em", "craps": "Deux dés, un point", "bingo": "Le salon des numéros",
+      "mines": "Pierres précieuses", "crash": "La courbe des multiplicateurs", "plinko": "La cascade dorée",
+      "wheel": "Le cercle de la fortune", "limbo": "Choisissez votre cible", "keno": "Vos numéros, votre tirage", "videopoker": "Jacks or Better"
+    }
+  },
   "auth": {
     "login": {
       "title": "Connexion",
@@ -133,6 +153,10 @@
     "chat": "Chat",
     "notifications": "Notifications",
     "houseAccount": "Compte Caisse",
+    "availableTreasury": "Caisse disponible",
+    "reservedBotCapital": "Capital réservé aux bots",
+    "reservedGameCapital": "Capital réservé aux jeux",
+    "totalTreasury": "Trésorerie totale",
     "recharge": "Recharger",
     "rechargeHouse": "Recharger la Caisse",
     "rechargeDesc": "Entrez le montant à injecter dans l'économie virtuelle",
